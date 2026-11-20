@@ -646,7 +646,7 @@
       );
     }
 
-    function clearChat() { resetWelcomeMessage(); }
+    function clearChat() { earthquakeContext = null; resetWelcomeMessage(); }
 
     function askSample(q) {
       document.getElementById('userInput').value = q;
@@ -658,7 +658,7 @@
       if (activePdfFilter === 'KO_ONLY') pool = KB.filter(c => c.lang === 'ko');
       else if (activePdfFilter === 'EN_ONLY') pool = KB.filter(c => c.lang === 'en');
       else if (activePdfFilter !== 'ALL') pool = KB.filter(c => c.file_name === activePdfFilter);
-      if (pool.length === 0) pool = KB;
+      if (pool.length === 0) return [];
 
       const allTerms = bilingualInfo.searchQuery
         .toLowerCase()
@@ -681,7 +681,7 @@
           if (koP.length >= 2 && textLower.includes(koP.toLowerCase())) score += 6.0;
         }
         return { chunk, score };
-      }).sort((a, b) => b.score - a.score);
+      }).filter(result => result.score > 0).sort((a, b) => b.score - a.score);
 
       if (mode !== 'mmr') return scored.slice(0, topK).map(s => s.chunk);
 
@@ -1229,18 +1229,37 @@
       return data.message?.content || '';
     }
 
+    let earthquakeContext = null;
+
     function earthquakeResponse(query) {
       const q = query.replace(/\s+/g, '');
-      if (!/지진|여진/.test(q) || /지진해일|쓰나미|운전|차안|전철|지하철|엘리베이터안/.test(q)) return '';
+      const previous = earthquakeContext;
+      earthquakeContext = null;
+      const explicit = /지진|여진/.test(q);
+      const car = /운전|자동차안|차안|차량안|차에타/.test(q);
+      const outdoors = /실외|길거리|길을?걷|건물밖|밖에있|거리에서|야외/.test(q);
+      const indoor = /실내|집안|집에|건물안/.test(q);
       const stopped = /(?:흔들림|진동|지진|여진)(?:이|가|은|는)?(?:방금)?(?:멈췄|멎었|끝났|그쳤)/.test(q);
-      const happening = /(?:지진|여진)(?:이|가)?(?:방금|지금)?(?:났어|났는데|났어요|났습니다|나고있|발생했|발생중)|흔들리(?:고있|는데|는중|네|고있어)|흔들려/.test(q);
-      const prepare = /대비|준비|훈련|미리|평소|비상가방/.test(q);
-      if (!stopped && !happening && !((/대피|대처|행동요령/.test(q) || /(?:지금|방금).*지진/.test(q)) && !prepare)) return '';
+      const shaking = /흔들려|흔들리고있|흔들리는데/.test(q);
+      const followup = previous && (stopped || shaking || car || outdoors || indoor || /나가도|대피해도/.test(q));
+      if (/지진해일|쓰나미|지하철|전철|엘리베이터안|화재|홍수/.test(q)) return '';
+      if (!explicit && !followup && !(shaking && /집|건물|바닥/.test(q))) return '';
+      if (/규모|진앙|진원|발생시각|몇시|어디서났/.test(q) && !/어떻게|대피|대처/.test(q)) {
+        return '실시간 지진 정보는 [기상청 날씨누리](https://www.weather.go.kr/)의 지진 정보에서 발생 시각과 지역을 확인하세요.';
+      }
+      if (/준비|훈련|대비|미리|평소|비상가방/.test(q) && !stopped && !shaking) return '';
+      if (!followup && !stopped && !shaking && !car && !outdoors &&
+          !/났|발생했|발생중|지금|방금|대피|대처|행동요령|어떻게|어떡/.test(q)) return '';
+      const place = car ? 'car' : outdoors ? 'outside' : indoor ? 'inside' : followup ? previous.place : '';
+      const afterShaking = stopped || (!shaking && followup && previous.stopped);
+      earthquakeContext = { place, stopped: Boolean(afterShaking) };
+      if (place === 'car') {
+        return '**차 안이라면** 운전자는 비상등을 켜고 서서히 감속해 도로 오른쪽에 정차하세요. 라디오의 지진 안내를 확인하세요.\n\n[행정안전부 장소별 행동요령](https://www.0404.go.kr/files/download/FILE_000000000100727/1)';
+      }
       const during = '**흔들리는 동안** 실내에서는 튼튼한 탁자 아래로 들어가 머리와 몸을 보호하고 탁자 다리를 잡으세요. 흔들리는 중에 밖으로 뛰어나가지 마세요.';
       const after = '**흔들림이 멈추면** 출구를 확보하고 계단으로 대피하세요. 엘리베이터는 이용하지 마세요.';
       const outside = '**실외에서는** 가방이나 팔로 머리를 보호하고 건물과 담장에서 떨어진 공터로 이동하세요.';
-      const steps = stopped ? [after, outside, '여진으로 다시 흔들리면 현재 위치에서 먼저 몸을 보호하세요.'] : [during, after, outside];
-      if (!stopped && /실외|길거리|밖에있|거리에서/.test(q)) steps.unshift(steps.pop());
+      const steps = place === 'outside' ? [outside, '낙하물에 주의하고 재난방송을 확인하세요.'] : afterShaking ? [after, outside, '여진으로 다시 흔들리면 현재 위치에서 먼저 몸을 보호하세요.'] : [during, after, outside];
       return steps.map((step, i) => (i + 1) + '. ' + step).join('\n') +
         '\n\n[행정안전부 지진 행동요령](https://m.safekorea.go.kr/safekorea-kor/em/emergency/emergency_eq2.html)';
     }
@@ -1270,6 +1289,10 @@
       const bilingualInfo = rewriteBilingualQueryJS(query);
       // 2. 한글 + 영문 PDF 통합 MMR 검색
       const retrieved = retrieveBilingualChunksJS(bilingualInfo, topK, searchType);
+      if (!retrieved.length) {
+        appendMessage('assistant', '선택한 매뉴얼에서 관련 지침을 찾지 못했어요. 재난 종류와 현재 상황을 조금 더 구체적으로 알려 주세요.');
+        return;
+      }
       const contextText = retrieved.map((doc, idx) =>
         `[문서 ${idx + 1} | 출처: ${doc.file_name} (${doc.page}쪽)]\n${doc.content.slice(0, 750)}`
       ).join('\n\n---\n\n');
