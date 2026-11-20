@@ -174,8 +174,8 @@
         </div>
       </div>
       <div class="flex items-center gap-2">
-        <button id="installPwaBtn" onclick="installOfflineApp()" class="hidden text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow transition">
-          📲 PC/폰 오프라인 앱 설치
+        <button id="installPwaBtn" onclick="openOfflineDownloadModal()" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow transition flex items-center gap-1">
+          <span>📦 앱 + 전체 PDF(32종) 바탕화면 설치</span>
         </button>
         <label for="pdfUploadInput" class="cursor-pointer text-xs font-semibold px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white shadow transition">
           📄 + PDF 추가 업로드
@@ -231,6 +231,65 @@
     </div>
 
     <div id="chatContainer" class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5"></div>
+
+    <!-- 앱 내 PDF 페이지 바로보기 모달 -->
+    <div id="pdfViewerModal" class="fixed inset-0 bg-black/80 z-50 hidden flex flex-col p-3 sm:p-6">
+      <div class="bg-slate-900 border border-slate-700 rounded-2xl flex-1 flex flex-col overflow-hidden shadow-2xl">
+        <div class="px-4 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="text-lg">📄</span>
+            <h3 id="pdfModalTitle" class="font-bold text-sm text-sky-300 truncate">원본 PDF 페이지 뷰어</h3>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <a id="pdfModalNewTabLink" href="#" target="_blank"
+              class="text-xs px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold">
+              ↗ 새 창에서 열기
+            </a>
+            <button onclick="closePdfModal()" class="text-xs px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold">
+              ✕ 닫기
+            </button>
+          </div>
+        </div>
+        <iframe id="pdfModalIframe" src="" class="w-full flex-1 bg-slate-950 border-0"></iframe>
+      </div>
+    </div>
+
+    <!-- 바탕화면 오프라인 앱 + 32종 PDF 일괄 다운로드/설치 모달 -->
+    <div id="offlineDownloadModal" class="fixed inset-0 bg-black/75 z-50 hidden flex items-center justify-center p-4">
+      <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-2xl">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <h3 class="font-bold text-base text-white flex items-center gap-2">
+            <span>📦 바탕화면 오프라인 앱 + 전체 PDF(32종) 설치</span>
+          </h3>
+          <button onclick="closeOfflineDownloadModal()" class="text-slate-400 hover:text-white text-lg">✕</button>
+        </div>
+
+        <div class="space-y-3 text-xs text-slate-300 leading-relaxed">
+          <div class="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700 space-y-2">
+            <div class="font-bold text-emerald-400 text-sm">방법 1. 바탕화면 설치용 전체 패키지(.zip) 다운로드 (추천)</div>
+            <p>
+              <b>앱 실행 파일(<code>전시생존_AI챗봇_앱실행.bat</code>, <code>바탕화면에_앱아이콘_만들기.bat</code>)과 32종 한글·영문 원본 PDF(<code>data/</code> 폴더)가 모두 포함된 전체 패키지</b>를 컴퓨터에 한 번에 다운로드합니다. 압축 해제 후 인터넷이 완전히 끊겨도 PDF 페이지 열기까지 100% 작동합니다.
+            </p>
+            <a href="https://github.com/6250hijk-boop/war/archive/refs/heads/main.zip"
+              class="inline-block w-full text-center py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition">
+              📥 앱 + 32종 전체 원본 PDF 패키지 (.zip) 한 번에 다운로드
+            </a>
+          </div>
+
+          <div class="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700 space-y-2">
+            <div class="font-bold text-sky-400 text-sm">방법 2. 현재 브라우저 앱(PWA)에 32종 PDF 오프라인 캐시 저장 & 앱 설치</div>
+            <p>
+              현재 웹앱의 오프라인 저장소(Cache Storage)에 32종 PDF 파일을 미리 전부 내려받아 두고 바탕화면 앱(PWA)으로 설치합니다.
+            </p>
+            <button onclick="precacheAllPdfsAndInstallApp()" id="precachePdfBtn"
+              class="w-full py-2.5 px-4 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow transition">
+              📲 32종 PDF 오프라인 캐시 저장 및 앱 설치 시작
+            </button>
+            <div id="precacheProgressText" class="text-[11px] text-amber-300 hidden"></div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div class="p-3 sm:p-4 bg-slate-900 border-t border-slate-800">
       <form id="chatForm" onsubmit="handleChatSubmit(event)" class="max-w-4xl mx-auto flex gap-2 items-center">
@@ -654,6 +713,7 @@
       for (const file of fileList) {
         try {
           statusEl.innerText = `⏳ [${file.name}] 추출 및 오프라인 한국어 번역 색인 중...`;
+          uploadedPdfBlobUrls[file.name] = URL.createObjectURL(file);
           const arrayBuffer = await file.arrayBuffer();
           const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
           let added = 0;
@@ -725,6 +785,78 @@
       document.getElementById('installPwaBtn').classList.add('hidden');
     }
 
+    // 업로드한 PDF의 Blob URL 저장소 (업로드한 PDF도 해당 페이지로 바로 열람 가능)
+    const uploadedPdfBlobUrls = {};
+
+    function getPdfPageUrl(fileName, pageNum) {
+      const p = pageNum || 1;
+      if (uploadedPdfBlobUrls[fileName]) {
+        return `${uploadedPdfBlobUrls[fileName]}#page=${p}`;
+      }
+      return `./data/${encodeURIComponent(fileName)}#page=${p}`;
+    }
+
+    function openPdfAtPage(fileName, pageNum) {
+      const p = pageNum || 1;
+      const url = getPdfPageUrl(fileName, p);
+      const modal = document.getElementById('pdfViewerModal');
+      const iframe = document.getElementById('pdfModalIframe');
+      const title = document.getElementById('pdfModalTitle');
+      const newTab = document.getElementById('pdfModalNewTabLink');
+
+      title.innerText = `${fileName} — ${p}쪽 원본 PDF`;
+      newTab.href = url;
+      // 같은 PDF의 다른 페이지로 이동할 때 iframe이 즉시 갱신되도록 초기화 후 설정
+      iframe.src = 'about:blank';
+      setTimeout(() => { iframe.src = url; }, 30);
+      modal.classList.remove('hidden');
+    }
+
+    function closePdfModal() {
+      const modal = document.getElementById('pdfViewerModal');
+      const iframe = document.getElementById('pdfModalIframe');
+      iframe.src = 'about:blank';
+      modal.classList.add('hidden');
+    }
+
+    function openOfflineDownloadModal() {
+      document.getElementById('offlineDownloadModal').classList.remove('hidden');
+    }
+
+    function closeOfflineDownloadModal() {
+      document.getElementById('offlineDownloadModal').classList.add('hidden');
+    }
+
+    async function precacheAllPdfsAndInstallApp() {
+      const progressEl = document.getElementById('precacheProgressText');
+      progressEl.classList.remove('hidden');
+      const uniqueFiles = [...new Set(KB.map(c => c.file_name).filter(Boolean))];
+
+      if ('caches' in window) {
+        try {
+          const cache = await caches.open('war-survival-chatbot-offline-v2');
+          let done = 0;
+          for (const fname of uniqueFiles) {
+            done++;
+            progressEl.innerText = `⏳ 오프라인 PDF 저장 중 (${done}/${uniqueFiles.length}): ${fname}`;
+            const pdfUrl = `./data/${encodeURIComponent(fname)}`;
+            try {
+              const resp = await fetch(pdfUrl);
+              if (resp.ok) await cache.put(pdfUrl, resp);
+            } catch (_) {}
+          }
+          progressEl.innerText = `✅ 전체 ${uniqueFiles.length}종 원본 PDF 오프라인 저장이 완료되었습니다!`;
+        } catch (e) {
+          progressEl.innerText = `⚠️ 캐시 저장 중 오류: ${e.message}`;
+        }
+      }
+      if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        await deferredInstallPrompt.userChoice;
+        deferredInstallPrompt = null;
+      }
+    }
+
     function appendMessage(role, markdownText, meta = {}) {
       const container = document.getElementById('chatContainer');
       const wrap = document.createElement('div');
@@ -740,16 +872,57 @@
           html += `<div class="text-xs bg-slate-950/80 border border-slate-800 px-3 py-1.5 rounded-lg text-emerald-300">🌐 <b>오프라인 한·영 교차 검색어:</b> <code>${meta.bilingualQuery}</code></div>`;
         }
         html += `<div class="prose prose-invert max-w-none text-sm answer-body">${renderMarkdownSafe(markdownText)}</div>`;
+
         if (meta.sources && meta.sources.length > 0) {
+          // 1) 클릭하면 해당 PDF 페이지로 바로 넘어가는 원클릭 출처 버튼 바
+          const quickButtons = meta.sources.map(s => {
+            const safeName = (s.file_name || '').replace(/'/g, "\\'");
+            const pageNum = s.page || 1;
+            const pageUrl = getPdfPageUrl(s.file_name, pageNum);
+            return `
+              <div class="inline-flex items-center rounded-lg bg-sky-950/80 border border-sky-500/40 overflow-hidden text-xs">
+                <button type="button" onclick="openPdfAtPage('${safeName}', ${pageNum})"
+                  class="px-2.5 py-1.5 text-sky-200 hover:bg-sky-800/60 font-semibold transition flex items-center gap-1"
+                  title="앱 내에서 ${s.file_name} ${pageNum}쪽 바로 열기">
+                  <span>📄 ${s.file_name} (${pageNum}쪽 보기)</span>
+                </button>
+                <a href="${pageUrl}" target="_blank"
+                  class="px-2 py-1.5 bg-sky-900/60 hover:bg-sky-700 text-sky-300 border-l border-sky-500/30 font-bold"
+                  title="새 창에서 ${pageNum}쪽 바로 열기">↗</a>
+              </div>`;
+          }).join('');
+
+          html += `
+            <div class="pt-2.5 border-t border-slate-800 space-y-1.5">
+              <div class="text-xs font-semibold text-slate-300">📌 출처 PDF 해당 페이지 바로가기 (클릭 시 해당 페이지로 즉시 이동):</div>
+              <div class="flex flex-wrap gap-1.5">${quickButtons}</div>
+            </div>`;
+
+          // 2) 상세 번역 원문 및 페이지 이동 버튼
           const items = meta.sources.map(s => {
             const badge = s.lang === 'en' ? '🇺🇸 영문→한국어 번역' : '🇰🇷 한국어 매뉴얼';
-            return `<div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800/90 space-y-1">
-              <div class="font-semibold text-sky-300 text-xs">• [${badge}] ${s.file_name} (${s.page}쪽)</div>
+            const safeName = (s.file_name || '').replace(/'/g, "\\'");
+            const pageNum = s.page || 1;
+            const pageUrl = getPdfPageUrl(s.file_name, pageNum);
+            return `<div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800/90 space-y-1.5">
+              <div class="flex items-center justify-between gap-2 flex-wrap">
+                <span class="font-semibold text-sky-300 text-xs">• [${badge}] ${s.file_name} (${pageNum}쪽)</span>
+                <div class="flex items-center gap-1.5">
+                  <button type="button" onclick="openPdfAtPage('${safeName}', ${pageNum})"
+                    class="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-semibold">
+                    📄 ${pageNum}쪽 앱 내 열기
+                  </button>
+                  <a href="${pageUrl}" target="_blank"
+                    class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 text-[11px] font-semibold">
+                    ↗ 새 창으로 ${pageNum}쪽 열기
+                  </a>
+                </div>
+              </div>
               <div class="text-slate-400 text-xs leading-relaxed whitespace-pre-line">${s.content.slice(0, 340)}...</div>
             </div>`;
           }).join('');
-          html += `<details class="pt-2 border-t border-slate-800 text-xs">
-            <summary class="cursor-pointer font-semibold text-slate-300 hover:text-sky-400">📖 참고한 한글·영문 매뉴얼 출처 및 한국어 번역 원문 보기 (${meta.sources.length}건)</summary>
+          html += `<details class="pt-1 text-xs">
+            <summary class="cursor-pointer font-semibold text-slate-400 hover:text-sky-400">📖 추출된 한국어 번역 및 원문 텍스트 미리보기 (${meta.sources.length}건)</summary>
             <div class="mt-2.5 space-y-2">${items}</div>
           </details>`;
         }
