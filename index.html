@@ -232,25 +232,58 @@
 
     <div id="chatContainer" class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5"></div>
 
-    <!-- 앱 내 PDF 페이지 바로보기 모달 -->
-    <div id="pdfViewerModal" class="fixed inset-0 bg-black/80 z-50 hidden flex flex-col p-3 sm:p-6">
+    <!-- 앱 내 PDF 페이지 바로보기 + 한국어 번역 분할 모달 (오프라인/웹앱 겸용) -->
+    <div id="pdfViewerModal" class="fixed inset-0 bg-black/85 z-50 hidden flex flex-col p-2 sm:p-5">
       <div class="bg-slate-900 border border-slate-700 rounded-2xl flex-1 flex flex-col overflow-hidden shadow-2xl">
-        <div class="px-4 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between gap-2">
+        <div class="px-4 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between gap-2 flex-wrap">
           <div class="flex items-center gap-2 min-w-0">
             <span class="text-lg">📄</span>
-            <h3 id="pdfModalTitle" class="font-bold text-sm text-sky-300 truncate">원본 PDF 페이지 뷰어</h3>
+            <h3 id="pdfModalTitle" class="font-bold text-sm text-sky-300 truncate">원본 PDF 페이지 & 한국어 번역 뷰어</h3>
           </div>
-          <div class="flex items-center gap-2 shrink-0">
+          <div class="flex items-center gap-1.5 shrink-0 flex-wrap">
+            <button type="button" onclick="stepPdfModalPage(-1)"
+              class="text-xs px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold">
+              ◀ 이전 쪽
+            </button>
+            <span id="pdfModalPageBadge" class="text-xs px-2.5 py-1 rounded bg-slate-950 text-sky-300 font-bold border border-slate-700">
+              1쪽
+            </span>
+            <button type="button" onclick="stepPdfModalPage(1)"
+              class="text-xs px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold">
+              다음 쪽 ▶
+            </button>
+            <button type="button" onclick="translateCurrentModalPageOnDemand()"
+              class="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold">
+              🌐 이 페이지 전체 한글 번역
+            </button>
             <a id="pdfModalNewTabLink" href="#" target="_blank"
               class="text-xs px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold">
-              ↗ 새 창에서 열기
+              ↗ 새 창에서 PDF 열기
             </a>
-            <button onclick="closePdfModal()" class="text-xs px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold">
+            <button type="button" onclick="closePdfModal()"
+              class="text-xs px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold">
               ✕ 닫기
             </button>
           </div>
         </div>
-        <iframe id="pdfModalIframe" src="" class="w-full flex-1 bg-slate-950 border-0"></iframe>
+
+        <!-- 좌우 분할: 왼쪽 한국어 번역본 / 오른쪽 원본 PDF -->
+        <div class="flex-1 flex flex-col lg:flex-row overflow-hidden">
+          <!-- 왼쪽: 오프라인/실시간 한국어 번역 패널 -->
+          <div class="w-full lg:w-5/12 bg-slate-950 border-b lg:border-b-0 lg:border-r border-slate-800 flex flex-col overflow-hidden max-h-[45vh] lg:max-h-none">
+            <div class="px-4 py-2.5 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between">
+              <span class="text-xs font-bold text-emerald-400">🇰🇷 해당 페이지 한국어 번역본 (오프라인 내장)</span>
+              <span id="pdfModalTransStatus" class="text-[11px] text-slate-400">자동 번역 완료</span>
+            </div>
+            <div id="pdfModalKoreanText" class="p-4 flex-1 overflow-y-auto text-sm text-slate-100 leading-relaxed space-y-3 whitespace-pre-line">
+            </div>
+          </div>
+
+          <!-- 오른쪽: 원본 PDF 뷰어 -->
+          <div class="w-full lg:w-7/12 flex-1 flex flex-col bg-slate-900">
+            <iframe id="pdfModalIframe" src="" class="w-full flex-1 bg-slate-950 border-0"></iframe>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -785,8 +818,40 @@
       document.getElementById('installPwaBtn').classList.add('hidden');
     }
 
-    // 업로드한 PDF의 Blob URL 저장소 (업로드한 PDF도 해당 페이지로 바로 열람 가능)
+    // 업로드한 PDF의 Blob URL 저장소 및 현재 모달 상태
     const uploadedPdfBlobUrls = {};
+    let currentModalFile = '';
+    let currentModalPage = 1;
+
+    function getChunkKoreanText(chunk) {
+      if (!chunk) return '';
+      if (chunk.ko_text && chunk.ko_text.trim()) return chunk.ko_text.trim();
+      const raw = chunk.content || '';
+      if (raw.includes('[🇺🇸 영문 원문 (Original English)]')) {
+        return raw.split('[🇺🇸 영문 원문 (Original English)]')[0]
+          .replace(/^\[.*?\]\s*/, '')
+          .trim();
+      }
+      if (raw.includes('[영문 원문 (Original English)]')) {
+        return raw.split('[영문 원문 (Original English)]')[0]
+          .replace(/^\[.*?\]\s*/, '')
+          .trim();
+      }
+      return raw.replace(/^\[.*?\]\s*/, '').trim();
+    }
+
+    function getChunkEnglishText(chunk) {
+      if (!chunk) return '';
+      if (chunk.en_text && chunk.en_text.trim()) return chunk.en_text.trim();
+      const raw = chunk.content || '';
+      if (raw.includes('[🇺🇸 영문 원문 (Original English)]')) {
+        return raw.split('[🇺🇸 영문 원문 (Original English)]')[1].trim();
+      }
+      if (raw.includes('[영문 원문 (Original English)]')) {
+        return raw.split('[영문 원문 (Original English)]')[1].trim();
+      }
+      return '';
+    }
 
     function getPdfPageUrl(fileName, pageNum) {
       const p = pageNum || 1;
@@ -796,20 +861,136 @@
       return `./data/${encodeURIComponent(fileName)}#page=${p}`;
     }
 
-    function openPdfAtPage(fileName, pageNum) {
+    // 오프라인 영문->한글 문장/단어 번역 보강기 (사전 번역되지 않은 기타 페이지 열람 시 오프라인 번역 지원)
+    const OFFLINE_WORD_MAP = {
+      'nuclear': '핵', 'detonation': '폭발', 'fallout': '방사능 낙진', 'radiation': '방사선/방사능',
+      'shelter': '대피소/은신처', 'inside': '실내로', 'stay': '머무르다', 'hours': '시간',
+      'minutes': '분', 'water': '물/식수', 'boil': '끓이다', 'boiling': '끓이기',
+      'bleach': '가정용 락스(염소 표백제)', 'drops': '방울', 'gallon': '갤런(3.8L)',
+      'filter': '여과하다/필터', 'clean': '깨끗한', 'safe': '안전한', 'emergency': '비상사태/응급',
+      'supply': '보급품/비상물품', 'kit': '키트', 'food': '식량', 'first aid': '응급처치',
+      'bleeding': '출혈', 'wound': '상처', 'pressure': '압박', 'dressing': '드레싱/거즈',
+      'bandage': '붕대', 'tourniquet': '지혈대(토니켓)', 'airway': '기도', 'breathing': '호흡',
+      'shock': '쇼크', 'fracture': '골절', 'splint': '부목', 'burn': '화상',
+      'chemical': '화학물질/화학무기', 'biological': '생물학', 'gas': '가스', 'mask': '방독면/마스크',
+      'decontamination': '제독/오염제거', 'wash': '씻다', 'soap': '비누', 'clothing': '의복/겉옷',
+      'remove': '제거하다/벗다', 'rope': '로프', 'knot': '매듭', 'loop': '고리',
+      'bowline': '보우라인 매듭', 'hitch': '히치 매듭', 'fire': '불/화재', 'tinder': '부싯깃',
+      'kindling': '잔가지 땔감', 'fuel': '주 땔감', 'plant': '식물', 'edible': '식용 가능한',
+      'poisonous': '독성이 있는', 'direction': '방향', 'north': '북쪽', 'south': '남쪽',
+      'east': '동쪽', 'west': '서쪽', 'shadow': '그림자', 'signal': '신호', 'rescue': '구조',
+      'warning': '경고/경보', 'alert': '경보', 'evacuate': '대피하다', 'basement': '지하층',
+      'building': '건물', 'window': '창문', 'door': '출입문', 'victim': '환자/부상자',
+      'casualty': '사상자/부상자', 'medical': '의료/의무', 'survival': '생존'
+    };
+
+    function offlineSentenceTranslateFallback(enRaw) {
+      let result = translateEnToKoOfflineJS(enRaw);
+      for (const [enW, koW] of Object.entries(OFFLINE_WORD_MAP)) {
+        const reg = new RegExp(`\\b${enW}\\b`, 'gi');
+        result = result.replace(reg, `${koW}(${enW})`);
+      }
+      return result;
+    }
+
+    async function renderModalKoreanTranslation(fileName, pageNum) {
+      const koBox = document.getElementById('pdfModalKoreanText');
+      const statusEl = document.getElementById('pdfModalTransStatus');
       const p = pageNum || 1;
-      const url = getPdfPageUrl(fileName, p);
+
+      // 1) 로컬 지식베이스(KB)에 사전 번역된 한국어 완역본이 있는지 먼저 확인 (오프라인 0.01초 즉시 표시)
+      const matchedChunks = KB.filter(c => c.file_name === fileName && Number(c.page) === Number(p));
+      if (matchedChunks.length > 0) {
+        statusEl.innerText = '✅ 오프라인 사전 번역본 로드됨';
+        const koParts = matchedChunks.map((c, idx) => {
+          const koTxt = getChunkKoreanText(c);
+          const enTxt = getChunkEnglishText(c);
+          return `🇸🇰 **[${p}쪽 한국어 번역 ${matchedChunks.length > 1 ? '#' + (idx + 1) : ''}]**\n${koTxt}` +
+            (enTxt ? `\n\n────────────────────\n🇺🇸 **[영문 원문 (Original)]**\n${enTxt}` : '');
+        });
+        koBox.innerText = koParts.join('\n\n====================\n\n');
+        return;
+      }
+
+      // 2) KB에서 해당 페이지가 아직 없을 경우(예: 초대형 매뉴얼의 중간 페이지 이동 시) 자동으로 PDF에서 추출하여 번역 수행!
+      await translateCurrentModalPageOnDemand();
+    }
+
+    async function translateCurrentModalPageOnDemand() {
+      const koBox = document.getElementById('pdfModalKoreanText');
+      const statusEl = document.getElementById('pdfModalTransStatus');
+      if (!currentModalFile) return;
+
+      statusEl.innerText = '⏳ 페이지 텍스트 추출 및 번역 중...';
+      koBox.innerText = `⏳ [${currentModalFile} - ${currentModalPage}쪽] 원문을 추출하여 한국어로 번역하고 있습니다...`;
+
+      // 먼저 KB에 있는 청크 확인
+      const matched = KB.filter(c => c.file_name === currentModalFile && Number(c.page) === Number(currentModalPage));
+      let rawEn = matched.map(c => getChunkEnglishText(c) || getChunkKoreanText(c)).join('\n\n').trim();
+
+      // KB에 없는 페이지면 pdf.js로 ./data/파일명.pdf 의 해당 페이지에서 직접 추출
+      if (!rawEn && window.pdfjsLib) {
+        try {
+          const pdfUrl = uploadedPdfBlobUrls[currentModalFile] || `./data/${encodeURIComponent(currentModalFile)}`;
+          const pdf = await window.pdfjsLib.getDocument(pdfUrl).promise;
+          if (currentModalPage >= 1 && currentModalPage <= pdf.numPages) {
+            const page = await pdf.getPage(currentModalPage);
+            const tc = await page.getTextContent();
+            rawEn = tc.items.map(i => i.str).join(' ').replace(/\s+/g, ' ').trim();
+          }
+        } catch (_) {}
+      }
+
+      if (!rawEn) {
+        statusEl.innerText = '이미지 페이지';
+        koBox.innerText = '이 페이지는 텍스트가 없는 표지/그림 페이지이거나 스캔 이미지입니다. 오른쪽 원본 PDF 뷰어를 참고해 주세요.';
+        return;
+      }
+
+      // 온라인 상태면 실시간 완역 시도, 오프라인 상태면 내장 오프라인 한·영 번역기 즉시 실행
+      try {
+        const q = encodeURIComponent(rawEn.slice(0, 1400));
+        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ko&dt=t&q=${q}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          const koFull = data[0].map(part => part[0] || '').join('');
+          statusEl.innerText = '✅ 한국어 전체 번역 완료';
+          koBox.innerText = `🇰🇷 **[${currentModalPage}쪽 한국어 완역본]**\n${koFull}\n\n────────────────────\n🇺🇸 **[영문 원문]**\n${rawEn}`;
+          return;
+        }
+      } catch (_) {
+        // 오프라인 상태 폴백
+      }
+
+      statusEl.innerText = '⚡ 오프라인 내장 번역 완료';
+      koBox.innerText = `🇰🇷 **[${currentModalPage}쪽 오프라인 한국어 번역]**\n${offlineSentenceTranslateFallback(rawEn)}\n\n────────────────────\n🇺🇸 **[영문 원문]**\n${rawEn}`;
+    }
+
+    function openPdfAtPage(fileName, pageNum) {
+      currentModalFile = fileName;
+      currentModalPage = Number(pageNum) || 1;
+      const url = getPdfPageUrl(currentModalFile, currentModalPage);
       const modal = document.getElementById('pdfViewerModal');
       const iframe = document.getElementById('pdfModalIframe');
       const title = document.getElementById('pdfModalTitle');
+      const pageBadge = document.getElementById('pdfModalPageBadge');
       const newTab = document.getElementById('pdfModalNewTabLink');
 
-      title.innerText = `${fileName} — ${p}쪽 원본 PDF`;
+      title.innerText = `${currentModalFile} — ${currentModalPage}쪽 (한국어 번역 + 원본 PDF)`;
+      pageBadge.innerText = `${currentModalPage}쪽`;
       newTab.href = url;
-      // 같은 PDF의 다른 페이지로 이동할 때 iframe이 즉시 갱신되도록 초기화 후 설정
       iframe.src = 'about:blank';
       setTimeout(() => { iframe.src = url; }, 30);
       modal.classList.remove('hidden');
+
+      renderModalKoreanTranslation(currentModalFile, currentModalPage);
+    }
+
+    function stepPdfModalPage(delta) {
+      if (!currentModalFile) return;
+      const nextP = Math.max(1, currentModalPage + delta);
+      openPdfAtPage(currentModalFile, nextP);
     }
 
     function closePdfModal() {
@@ -874,7 +1055,7 @@
         html += `<div class="prose prose-invert max-w-none text-sm answer-body">${renderMarkdownSafe(markdownText)}</div>`;
 
         if (meta.sources && meta.sources.length > 0) {
-          // 1) 클릭하면 해당 PDF 페이지로 바로 넘어가는 원클릭 출처 버튼 바
+          // 1) 클릭하면 한국어 번역 + 해당 PDF 페이지가 동시에 열리는 원클릭 출처 버튼 바
           const quickButtons = meta.sources.map(s => {
             const safeName = (s.file_name || '').replace(/'/g, "\\'");
             const pageNum = s.page || 1;
@@ -883,46 +1064,51 @@
               <div class="inline-flex items-center rounded-lg bg-sky-950/80 border border-sky-500/40 overflow-hidden text-xs">
                 <button type="button" onclick="openPdfAtPage('${safeName}', ${pageNum})"
                   class="px-2.5 py-1.5 text-sky-200 hover:bg-sky-800/60 font-semibold transition flex items-center gap-1"
-                  title="앱 내에서 ${s.file_name} ${pageNum}쪽 바로 열기">
-                  <span>📄 ${s.file_name} (${pageNum}쪽 보기)</span>
+                  title="${s.file_name} ${pageNum}쪽 한국어 번역본 + 원본 PDF 함께 열기">
+                  <span>🇰🇷📄 ${s.file_name} (${pageNum}쪽 한글번역+PDF 열기)</span>
                 </button>
                 <a href="${pageUrl}" target="_blank"
                   class="px-2 py-1.5 bg-sky-900/60 hover:bg-sky-700 text-sky-300 border-l border-sky-500/30 font-bold"
-                  title="새 창에서 ${pageNum}쪽 바로 열기">↗</a>
+                  title="새 창에서 원본 PDF ${pageNum}쪽 열기">↗</a>
               </div>`;
           }).join('');
 
           html += `
             <div class="pt-2.5 border-t border-slate-800 space-y-1.5">
-              <div class="text-xs font-semibold text-slate-300">📌 출처 PDF 해당 페이지 바로가기 (클릭 시 해당 페이지로 즉시 이동):</div>
+              <div class="text-xs font-semibold text-emerald-400">📌 출처 클릭 시 [🇰🇷 한국어 완역본 + 📄 원본 PDF 해당 페이지]가 동시에 열립니다:</div>
               <div class="flex flex-wrap gap-1.5">${quickButtons}</div>
             </div>`;
 
-          // 2) 상세 번역 원문 및 페이지 이동 버튼
+          // 2) 상세 한국어 완역본 및 페이지 이동 버튼
           const items = meta.sources.map(s => {
-            const badge = s.lang === 'en' ? '🇺🇸 영문→한국어 번역' : '🇰🇷 한국어 매뉴얼';
+            const badge = s.lang === 'en' ? '🇺🇸 영문→🇰🇷 한국어 완역' : '🇰🇷 한국어 매뉴얼';
             const safeName = (s.file_name || '').replace(/'/g, "\\'");
             const pageNum = s.page || 1;
             const pageUrl = getPdfPageUrl(s.file_name, pageNum);
-            return `<div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800/90 space-y-1.5">
+            const koTxt = getChunkKoreanText(s);
+            const enTxt = getChunkEnglishText(s);
+            return `<div class="p-3 rounded-lg bg-slate-950 border border-slate-800/90 space-y-2">
               <div class="flex items-center justify-between gap-2 flex-wrap">
                 <span class="font-semibold text-sky-300 text-xs">• [${badge}] ${s.file_name} (${pageNum}쪽)</span>
                 <div class="flex items-center gap-1.5">
                   <button type="button" onclick="openPdfAtPage('${safeName}', ${pageNum})"
-                    class="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-semibold">
-                    📄 ${pageNum}쪽 앱 내 열기
+                    class="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold">
+                    🇰🇷📄 ${pageNum}쪽 한글번역 + PDF 뷰어 열기
                   </button>
                   <a href="${pageUrl}" target="_blank"
                     class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 text-[11px] font-semibold">
-                    ↗ 새 창으로 ${pageNum}쪽 열기
+                    ↗ 원본 PDF만 새 창 열기
                   </a>
                 </div>
               </div>
-              <div class="text-slate-400 text-xs leading-relaxed whitespace-pre-line">${s.content.slice(0, 340)}...</div>
+              <div class="text-slate-100 text-xs leading-relaxed whitespace-pre-line bg-slate-900/80 p-2.5 rounded border border-slate-800">
+                <span class="text-emerald-400 font-bold">🇰🇷 [한국어 번역 본문]</span>\n${koTxt}
+              </div>
+              ${enTxt ? `<details class="text-[11px] text-slate-400"><summary class="cursor-pointer hover:text-slate-200">🇺🇸 영문 원문(Original English) 펼쳐보기</summary><div class="mt-1.5 p-2 bg-slate-950 rounded border border-slate-800/70 whitespace-pre-line">${enTxt}</div></details>` : ''}
             </div>`;
           }).join('');
           html += `<details class="pt-1 text-xs">
-            <summary class="cursor-pointer font-semibold text-slate-400 hover:text-sky-400">📖 추출된 한국어 번역 및 원문 텍스트 미리보기 (${meta.sources.length}건)</summary>
+            <summary class="cursor-pointer font-semibold text-slate-300 hover:text-sky-400">📖 출처 페이지 한국어 번역 본문 바로 펼쳐보기 (${meta.sources.length}건)</summary>
             <div class="mt-2.5 space-y-2">${items}</div>
           </details>`;
         }

@@ -73,6 +73,8 @@ def load_war_knowledge_base() -> list[Document]:
                     "file_name": r.get("file_name", ""),
                     "page_number": r.get("page", 1),
                     "lang": r.get("lang", "ko"),
+                    "ko_text": r.get("ko_text", ""),
+                    "en_text": r.get("en_text", ""),
                 },
             )
         )
@@ -596,8 +598,9 @@ if query:
         for doc in retrieved_docs:
             fname = doc.metadata.get("file_name", "매뉴얼")
             page = doc.metadata.get("page_number", 1)
-            lang_badge = "🇺🇸 영문→한국어 번역" if doc.metadata.get("lang") == "en" else "🇰🇷 한국어 원문"
-            preview = doc.page_content.strip().replace("\n", " ")[:320] + "..."
+            lang_badge = "🇺🇸 영문→🇰🇷 한국어 완역" if doc.metadata.get("lang") == "en" else "🇰🇷 한국어 원문"
+            ko_body = (doc.metadata.get("ko_text") or doc.page_content.split("[🇺🇸 영문 원문")[0]).strip()
+            preview = f"🇰🇷 [한국어 완역본]: {ko_body[:450]}"
             sources_info.append({"title": f"[{lang_badge}] {fname} ({page}쪽)", "preview": preview})
 
         with st.expander("📖 참고한 한글·영문 매뉴얼 출처 및 한국어 번역 원문 보기"):
