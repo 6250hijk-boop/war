@@ -322,6 +322,10 @@ def generate_cached_llm_answer(
 def split_brief_and_detail(markdown_text: str) -> tuple[str, str]:
     """답변을 [간단한 핵심 답변]과 [자세히 보기용 상세 해설]로 분리합니다."""
     text = (markdown_text or "").strip()
+    # 숫자 범위 물결표(~)가 GFM 취소선으로 오인식되지 않도록 이스케이프 및 따옴표 굵게(**) 교정
+    text = text.replace("~", r"\~")
+    text = re.sub(r'\*\*"([^"]+)"\*\*', r'"**\1**"', text)
+    text = re.sub(r"\*\*'([^']+)'\*\*", r"'**\1**'", text)
     m = re.search(r"\n+(?=###\s*(?:💡|✅|📌|⚠️|2\.|원리|상세|단계별|매뉴얼|관련))", text)
     if m and m.start() > 0:
         return text[: m.start()].strip(), text[m.start() :].strip()
