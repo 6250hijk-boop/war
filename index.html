@@ -351,6 +351,8 @@
 
     // 오프라인 한↔영 대역 사전
     const KO_TO_EN_DICT = {
+      '지진': ['earthquake'],
+      '여진': ['aftershock', 'earthquake'],
       '핵': ['nuclear', 'detonation', 'blast', 'fallout'],
       '핵폭발': ['nuclear detonation', 'blast', 'fallout', 'radiation', '72-hour', 'shelter'],
       '방사능': ['radiation', 'radioactive', 'fallout', 'contamination'],
@@ -1227,6 +1229,22 @@
       return data.message?.content || '';
     }
 
+    function earthquakeResponse(query) {
+      const q = query.replace(/\s+/g, '');
+      if (!/지진|여진/.test(q) || /지진해일|쓰나미|운전|차안|전철|지하철|엘리베이터안/.test(q)) return '';
+      const stopped = /(?:흔들림|진동|지진|여진)(?:이|가|은|는)?(?:방금)?(?:멈췄|멎었|끝났|그쳤)/.test(q);
+      const happening = /(?:지진|여진)(?:이|가)?(?:방금|지금)?(?:났어|났는데|났어요|났습니다|나고있|발생했|발생중)|흔들리(?:고있|는데|는중|네|고있어)|흔들려/.test(q);
+      const prepare = /대비|준비|훈련|미리|평소|비상가방/.test(q);
+      if (!stopped && !happening && !((/대피|대처|행동요령/.test(q) || /(?:지금|방금).*지진/.test(q)) && !prepare)) return '';
+      const during = '**흔들리는 동안** 실내에서는 튼튼한 탁자 아래로 들어가 머리와 몸을 보호하고 탁자 다리를 잡으세요. 흔들리는 중에 밖으로 뛰어나가지 마세요.';
+      const after = '**흔들림이 멈추면** 출구를 확보하고 계단으로 대피하세요. 엘리베이터는 이용하지 마세요.';
+      const outside = '**실외에서는** 가방이나 팔로 머리를 보호하고 건물과 담장에서 떨어진 공터로 이동하세요.';
+      const steps = stopped ? [after, outside, '여진으로 다시 흔들리면 현재 위치에서 먼저 몸을 보호하세요.'] : [during, after, outside];
+      if (!stopped && /실외|길거리|밖에있|거리에서/.test(q)) steps.unshift(steps.pop());
+      return steps.map((step, i) => (i + 1) + '. ' + step).join('\n') +
+        '\n\n[행정안전부 지진 행동요령](https://m.safekorea.go.kr/safekorea-kor/em/emergency/emergency_eq2.html)';
+    }
+
     async function handleChatSubmit(e) {
       e.preventDefault();
       const inputEl = document.getElementById('userInput');
@@ -1234,6 +1252,11 @@
       if (!query) return;
       inputEl.value = '';
       appendMessage('user', query);
+      const immediateAnswer = earthquakeResponse(query);
+      if (immediateAnswer) {
+        appendMessage('assistant', immediateAnswer);
+        return;
+      }
 
       const engineMode = document.getElementById('engineModeSelect').value;
       const apiKey = document.getElementById('apiKeyInput').value.trim();
