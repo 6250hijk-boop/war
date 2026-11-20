@@ -1,0 +1,17 @@
+{
+  "name": "전시·재난·생존 매뉴얼 한·영 통합 AI 챗봇",
+  "short_name": "전시생존 AI챗봇",
+  "description": "전쟁·재난으로 인터넷이 끊긴 오프라인 환경에서도 작동하는 한·영 생존 매뉴얼 AI 챗봇",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0b1120",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230f172a'/><text y='.9em' x='12' font-size='75'>🛡️</text></svg>",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
