@@ -77,15 +77,19 @@
         </div>
 
         <div id="modeInfoCloudApi" class="hidden space-y-2 bg-sky-950/40 p-2.5 rounded-lg border border-sky-700/50 text-xs">
-          <input id="apiKeyInput" type="password" placeholder="Gemini(AIza...) 또는 OpenAI(sk-...) 키"
+          <label class="block text-[11px] text-sky-300 font-semibold">🔑 Gemini 또는 OpenAI API 키</label>
+          <input id="apiKeyInput" type="password" placeholder="Gemini 또는 OpenAI API 키 입력"
             class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
             oninput="saveApiKey(this.value)" />
           <select id="modelSelect" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white">
-            <option value="gemini-2.5-flash-lite" selected>gemini-2.5-flash-lite (최소 크레딧)</option>
-            <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite</option>
+            <option value="gemini-2.5-flash-lite" selected>gemini-2.5-flash-lite (최소 크레딧 · 권장)</option>
+            <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite (초경량)</option>
             <option value="gemini-2.5-flash">gemini-2.5-flash</option>
             <option value="gpt-4o-mini">gpt-4o-mini</option>
           </select>
+          <p id="apiKeyStatus" class="text-[11px] text-slate-400">
+            키는 내 브라우저(localStorage)에만 안전하게 저장됩니다.
+          </p>
         </div>
       </div>
 
@@ -459,8 +463,13 @@
     ];
 
     function initApp() {
-      const savedKey = localStorage.getItem('WAR_GEMINI_API_KEY') || '';
-      if (savedKey) document.getElementById('apiKeyInput').value = savedKey;
+      const savedKey = localStorage.getItem('WAR_GEMINI_API_KEY') || localStorage.getItem('SAFETY_GEMINI_API_KEY') || '';
+      if (savedKey) {
+        document.getElementById('apiKeyInput').value = savedKey;
+        document.getElementById('engineModeSelect').value = 'cloud_api';
+        onEngineModeChange('cloud_api');
+        updateKeyStatus(true);
+      }
       updateKbBadge();
       resetWelcomeMessage();
     }
@@ -471,10 +480,26 @@
       document.getElementById('kbCountBadge').innerText = `• 총 ${KB.length}개 한·영 청크 (🇰🇷 한글 ${koCnt} + 🇺🇸 영문번역 ${enCnt})`;
     }
 
+    function updateKeyStatus(hasKey) {
+      const el = document.getElementById('apiKeyStatus');
+      if (!el) return;
+      if (hasKey) {
+        el.innerHTML = '<span class="text-emerald-400 font-semibold">🔒 API 키가 브라우저에 안전하게 연결되었습니다.</span>';
+      } else {
+        el.innerHTML = '키는 내 브라우저(localStorage)에만 안전하게 저장됩니다.';
+      }
+    }
+
     function saveApiKey(val) {
       const t = (val || '').trim();
-      if (t) localStorage.setItem('WAR_GEMINI_API_KEY', t);
-      else localStorage.removeItem('WAR_GEMINI_API_KEY');
+      if (t) {
+        localStorage.setItem('WAR_GEMINI_API_KEY', t);
+        localStorage.setItem('SAFETY_GEMINI_API_KEY', t);
+        updateKeyStatus(true);
+      } else {
+        localStorage.removeItem('WAR_GEMINI_API_KEY');
+        updateKeyStatus(false);
+      }
     }
 
     function onEngineModeChange(mode) {
@@ -671,6 +696,65 @@
       return bubble;
     }
 
+    async function callExternalLLM(apiKey, model, systemInstruction, userPrompt) {
+      if (apiKey.startsWith('sk-') || model.startsWith('gpt-')) {
+        const gptModel = model.startsWith('gpt-') ? model : 'gpt-4o-mini';
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: gptModel,
+            temperature: 0.1,
+            messages: [
+              { role: 'system', content: systemInstruction },
+              { role: 'user', content: userPrompt }
+            ]
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error?.message || `OpenAI 오류 (${res.status})`);
+        return data.choices?.[0]?.message?.content || '';
+      }
+
+      const geminiModel = model.startsWith('gemini-') ? model : 'gemini-2.5-flash-lite';
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemInstruction }] },
+          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 1100 }
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || `Gemini 오류 (${res.status})`);
+      return data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+    }
+
+    async function callOllamaLLM(ollamaUrl, ollamaModel, systemInstruction, userPrompt) {
+      const endpoint = `${ollamaUrl.replace(/\/$/, '')}/api/chat`;
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: ollamaModel,
+          stream: false,
+          options: { temperature: 0.1 },
+          messages: [
+            { role: 'system', content: systemInstruction },
+            { role: 'user', content: userPrompt }
+          ]
+        })
+      });
+      if (!res.ok) throw new Error(`Ollama 연결 실패 (${res.status})`);
+      const data = await res.json();
+      return data.message?.content || '';
+    }
+
     async function handleChatSubmit(e) {
       e.preventDefault();
       const inputEl = document.getElementById('userInput');
@@ -679,6 +763,11 @@
       inputEl.value = '';
       appendMessage('user', query);
 
+      const engineMode = document.getElementById('engineModeSelect').value;
+      const apiKey = document.getElementById('apiKeyInput').value.trim();
+      const model = document.getElementById('modelSelect').value;
+      const ollamaModel = document.getElementById('ollamaModelSelect').value;
+      const ollamaUrl = document.getElementById('ollamaUrlInput').value.trim();
       const topK = parseInt(document.getElementById('topKRange').value, 10) || 4;
       const searchType = document.getElementById('searchTypeSelect').value;
 
@@ -686,8 +775,46 @@
       const bilingualInfo = rewriteBilingualQueryJS(query);
       // 2. 한글 + 영문 PDF 통합 MMR 검색
       const retrieved = retrieveBilingualChunksJS(bilingualInfo, topK, searchType);
-      // 3. 한국어 답변 생성
-      const answer = synthesizeKoreanAnswerJS(query, retrieved, bilingualInfo);
+      const contextText = retrieved.map((doc, idx) =>
+        `[문서 ${idx + 1} | 출처: ${doc.file_name} (${doc.page}쪽)]\n${doc.content.slice(0, 750)}`
+      ).join('\n\n---\n\n');
+      const sysPrompt =
+        '너는 전시·재난·생존·응급처치 전문 AI 튜터다.\n' +
+        '[참고 문서]에는 한국어 문서와 영문 문서(FEMA, 미 육군 생존·응급처치 교범, 스카우트 매듭법 등)가 함께 들어 있다.\n' +
+        '영문 문서에서 찾은 내용도 반드시 자연스럽고 정확한 한국어로 번역·통합하여 다음 4단계 구조로 설명하라:\n' +
+        '1) ### 🎯 핵심 답변: 질문에 대한 명확한 한국어 결론 2~3문장\n' +
+        '2) ### 💡 원리 및 상세 해설: 왜 그렇게 행동해야 하는지 원리·배경 설명\n' +
+        '3) ### ✅ 단계별 생존·행동 수칙: 구체적인 절차와 수치를 3~5개 항목으로 정리\n' +
+        '4) > 📖 **출처:** 참고한 한글·영문 문서명과 페이지 번호 표기\n\n' +
+        `[참고 문서]\n${contextText}`;
+
+      // 3. 선택된 모드에 따라 한국어 답변 생성
+      let answer = '';
+      if (engineMode === 'offline_rag') {
+        answer = synthesizeKoreanAnswerJS(query, retrieved, bilingualInfo);
+      } else if (engineMode === 'opensource_llm') {
+        const loadingBubble = appendMessage('assistant', `⏳ 무료 오픈소스 LLM (${ollamaModel})이 한·영 문서를 한국어로 종합 중입니다...`);
+        try {
+          answer = await callOllamaLLM(ollamaUrl, ollamaModel, sysPrompt, query);
+          loadingBubble.parentElement.remove();
+        } catch (_) {
+          loadingBubble.parentElement.remove();
+          answer = synthesizeKoreanAnswerJS(query, retrieved, bilingualInfo);
+        }
+      } else {
+        if (!apiKey) {
+          answer = synthesizeKoreanAnswerJS(query, retrieved, bilingualInfo);
+        } else {
+          const loadingBubble = appendMessage('assistant', `⏳ Gemini 초경량 모델(${model})이 한·영 문서를 한국어로 종합 중입니다...`);
+          try {
+            answer = await callExternalLLM(apiKey, model, sysPrompt, query);
+            loadingBubble.parentElement.remove();
+          } catch (_) {
+            loadingBubble.parentElement.remove();
+            answer = synthesizeKoreanAnswerJS(query, retrieved, bilingualInfo);
+          }
+        }
+      }
 
       appendMessage('assistant', answer, {
         bilingualQuery: bilingualInfo.display,
