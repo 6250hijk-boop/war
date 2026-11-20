@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>🛡️ 전시·재난·생존 한·영 통합 AI 챗봇</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="knowledge_base.js"></script>
+  <style>
+    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+    body {
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      background-color: #0b1120;
+      color: #f8fafc;
+    }
+    .prose p { margin-bottom: 0.6rem; line-height: 1.7; }
+    .prose h3 { font-size: 1rem; font-weight: 700; color: #38bdf8; margin-top: 0.9rem; margin-bottom: 0.45rem; }
+    .prose ul, .prose ol { margin-left: 1.25rem; margin-bottom: 0.65rem; list-style-type: disc; }
+    .prose li { margin-bottom: 0.3rem; line-height: 1.65; }
+    .prose strong { color: #38bdf8; font-weight: 700; }
+    .prose blockquote {
+      border-left: 3px solid #38bdf8;
+      background: rgba(15, 23, 42, 0.7);
+      padding: 0.6rem 0.9rem;
+      border-radius: 0.5rem;
+      margin: 0.6rem 0;
+      color: #e2e8f0;
+    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+  </style>
+</head>
+<body class="h-screen flex overflow-hidden">
+
+  <div id="sidebarOverlay" onclick="toggleSidebar()" class="fixed inset-0 bg-black/60 z-30 hidden lg:hidden"></div>
+
+  <!-- 왼쪽 사이드바 -->
+  <aside id="sidebar" class="fixed lg:static inset-y-0 left-0 z-40 w-80 bg-slate-900 border-r border-slate-800 flex flex-col transform -translate-x-full lg:translate-x-0 transition-transform duration-200">
+    <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="text-2xl">🛡️</span>
+        <h2 class="font-bold text-lg text-white">한·영 생존 챗봇 설정</h2>
+      </div>
+      <button onclick="toggleSidebar()" class="lg:hidden text-slate-400 hover:text-white text-xl">✕</button>
+    </div>
+
+    <div class="p-4 flex-1 overflow-y-auto space-y-5 text-sm">
+      <!-- 3가지 챗봇 버전 선택 -->
+      <div class="bg-slate-800/90 p-3.5 rounded-xl border border-slate-700 space-y-2.5">
+        <label class="block font-bold text-sky-400 text-xs">🎛️ 챗봇 작동 버전 선택</label>
+        <select id="engineModeSelect" onchange="onEngineModeChange(this.value)"
+          class="w-full bg-slate-950 border border-sky-500/60 rounded-lg px-3 py-2 text-xs font-semibold text-white focus:outline-none">
+          <option value="offline_rag" selected>⚡ 1. 오프라인 한·영 번역 RAG 엔진 (API 불필요 · 0원)</option>
+          <option value="opensource_llm">🦙 2. 무료 오픈소스 LLM (Ollama · 0원)</option>
+          <option value="cloud_api">☁️ 3. API 사용 버전 (Gemini Flash-Lite / GPT)</option>
+        </select>
+
+        <div id="modeInfoOffline" class="text-[11px] text-emerald-300 bg-emerald-950/50 p-2.5 rounded-lg border border-emerald-700/50 leading-relaxed">
+          ✅ <b>오프라인 한·영 교차 검색 활성:</b> 한국어로 질문하면 자동으로 <b>한글+영문 키워드</b>로 변환하여 한글·영문 PDF 32종을 모두 검색한 뒤 <b>100% 한국어</b>로 번역·요약해 보여줍니다.
+        </div>
+
+        <div id="modeInfoOpensource" class="hidden space-y-2 bg-indigo-950/40 p-2.5 rounded-lg border border-indigo-700/50 text-xs">
+          <p class="text-[11px] text-indigo-200 leading-relaxed">
+            🦙 <b>무료 오픈소스 LLM:</b> 로컬 Ollama 서버를 사용해 한·영 문서를 한국어로 요약합니다.
+          </p>
+          <select id="ollamaModelSelect" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white">
+            <option value="qwen2.5:3b" selected>qwen2.5:3b</option>
+            <option value="exaone3.5:2.4b">exaone3.5:2.4b</option>
+            <option value="gemma2:2b">gemma2:2b</option>
+            <option value="llama3.2:3b">llama3.2:3b</option>
+          </select>
+          <input id="ollamaUrlInput" type="text" value="http://localhost:11434"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white" />
+        </div>
+
+        <div id="modeInfoCloudApi" class="hidden space-y-2 bg-sky-950/40 p-2.5 rounded-lg border border-sky-700/50 text-xs">
+          <input id="apiKeyInput" type="password" placeholder="Gemini(AIza...) 또는 OpenAI(sk-...) 키"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+            oninput="saveApiKey(this.value)" />
+          <select id="modelSelect" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white">
+            <option value="gemini-2.5-flash-lite" selected>gemini-2.5-flash-lite (최소 크레딧)</option>
+            <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite</option>
+            <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+            <option value="gpt-4o-mini">gpt-4o-mini</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 검색 설정 -->
+      <div class="space-y-3">
+        <h3 class="font-semibold text-slate-300">🔍 한·영 교차 리트리버 설정</h3>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">검색 방식</label>
+          <select id="searchTypeSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+            <option value="mmr" selected>MMR (한·영 문서 다양성 + 관련성 균형)</option>
+            <option value="similarity">Similarity (단순 유사도 상위)</option>
+          </select>
+        </div>
+        <div>
+          <div class="flex justify-between text-xs text-slate-400 mb-1">
+            <span>검색 문서 조각 수 (top-k)</span>
+            <span id="topKLabel" class="text-sky-400 font-bold">4개</span>
+          </div>
+          <input id="topKRange" type="range" min="2" max="6" value="4"
+            oninput="document.getElementById('topKLabel').innerText = this.value + '개'"
+            class="w-full accent-sky-500" />
+        </div>
+      </div>
+
+      <!-- 데이터 폴더 및 추가 업로드 -->
+      <div class="space-y-2.5 pt-2 border-t border-slate-800">
+        <h3 class="font-semibold text-slate-300">📚 war/data 한·영 매뉴얼 현황</h3>
+        <div class="bg-slate-800/60 p-2.5 rounded-lg border border-slate-700/70 text-xs space-y-1">
+          <div class="text-slate-300">• 🇰🇷 한국어 매뉴얼: 행정안전부 비상시 국민행동요령, 폭격·화학·질병·비상물품 등 11종</div>
+          <div class="text-slate-300">• 🇺🇸 영문 매뉴얼(한국어 번역 색인): FEMA 핵폭발 72시간 가이드, 미 육군 생존교범(FM 21-76), 야전 응급처치(FM 4-25-11), 스카우트 매듭법 등 21종</div>
+          <div id="uploadedPdfItems" class="space-y-1 pt-1"></div>
+          <div id="kbCountBadge" class="pt-1 text-emerald-400 font-semibold">• 한·영 통합 색인 로드 중...</div>
+        </div>
+
+        <div class="bg-sky-950/40 p-3 rounded-xl border border-sky-700/50 space-y-2">
+          <span class="text-xs font-semibold text-sky-300">🌐 한글/영문 PDF 추가 업로드 (오프라인 자동 번역)</span>
+          <input id="pdfUploadInput" type="file" accept="application/pdf" multiple
+            onchange="handlePdfUpload(this.files)"
+            class="block w-full text-xs text-slate-300 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-sky-600 file:text-white hover:file:bg-sky-500 cursor-pointer" />
+          <div id="pdfUploadStatus" class="text-[11px] text-sky-300 hidden"></div>
+        </div>
+      </div>
+
+      <button onclick="clearChat()" class="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition">
+        🗑️ 대화 기록 초기화
+      </button>
+    </div>
+  </aside>
+
+  <!-- 메인 채팅 영역 -->
+  <main class="flex-1 flex flex-col h-full bg-slate-950">
+    <header class="px-4 py-3 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between gap-2">
+      <div class="flex items-center gap-3">
+        <button onclick="toggleSidebar()" class="lg:hidden p-2 rounded-lg bg-slate-800 text-slate-200">☰</button>
+        <div>
+          <h1 class="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+            <span>🛡️ 전시·재난·생존 매뉴얼 한·영 통합 AI 챗봇</span>
+            <span id="headerModeBadge" class="hidden sm:inline-block text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">⚡ 오프라인 한·영 번역 RAG</span>
+          </h1>
+          <p class="text-xs text-slate-400">한국어로 질문 → 한글+영문 매뉴얼 동시 교차 검색 → 100% 한국어 결과 출력</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <label for="pdfUploadInput" class="cursor-pointer text-xs font-semibold px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white shadow transition">
+          📄 + PDF 추가 업로드
+        </label>
+        <button onclick="toggleSidebar()" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 border border-slate-700">
+          ⚙️ 설정
+        </button>
+      </div>
+    </header>
+
+    <!-- 검색 대상 필터 바 -->
+    <div class="px-4 py-2 bg-slate-900/75 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-slate-400 font-semibold">📚 검색 대상 PDF 범위:</span>
+        <select id="pdfFilterSelect" onchange="activePdfFilter = this.value"
+          class="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-sky-300 font-semibold">
+          <option value="ALL" selected>전체 한글 + 영문 PDF 통합 검색 (32종)</option>
+          <option value="KO_ONLY">🇰🇷 한국어 PDF 매뉴얼에서만 검색</option>
+          <option value="EN_ONLY">🇺🇸 영문 PDF 매뉴얼(한국어 번역)에서만 검색</option>
+        </select>
+      </div>
+      <span class="text-[11px] text-slate-400">📂 데이터 원본: <code>C:\Users\6250h\Desktop\war\data</code></span>
+    </div>
+
+    <!-- 추천 질문 버튼 바 -->
+    <div class="px-4 py-2.5 bg-slate-900/40 border-b border-slate-800/80 overflow-x-auto">
+      <div class="flex gap-2 min-w-max">
+        <button onclick="askSample('핵폭발 및 방사능 낙진 발생 후 초기 72시간 동안 어떻게 행동해야 하나요?')"
+          class="text-xs px-3 py-1.5 rounded-full bg-slate-800 hover:bg-sky-900/50 text-slate-200 border border-slate-700 transition">
+          💡 핵폭발·낙진 초기 72시간 행동요령
+        </button>
+        <button onclick="askSample('비상시 오염된 물을 안전하게 정수·소독해서 식수로 만드는 방법은?')"
+          class="text-xs px-3 py-1.5 rounded-full bg-slate-800 hover:bg-sky-900/50 text-slate-200 border border-slate-700 transition">
+          💡 오염된 물 식수 정수·락스 소독법
+        </button>
+        <button onclick="askSample('출혈이 심할 때 지혈대(토니켓) 사용법과 야전 응급처치 순서를 알려줘')"
+          class="text-xs px-3 py-1.5 rounded-full bg-slate-800 hover:bg-sky-900/50 text-slate-200 border border-slate-700 transition">
+          💡 출혈 지혈·지혈대(토니켓) 응급처치
+        </button>
+        <button onclick="askSample('생존 및 구조에 꼭 필요한 보우라인·클로브히치 등 로프 매듭법 알려줘')"
+          class="text-xs px-3 py-1.5 rounded-full bg-slate-800 hover:bg-sky-900/50 text-slate-200 border border-slate-700 transition">
+          💡 보우라인·생존 로프 매듭법
+        </button>
+        <button onclick="askSample('화생방(화학·독가스) 공격 시 대피 요령은 핵·폭격 대피와 무엇이 다른가요?')"
+          class="text-xs px-3 py-1.5 rounded-full bg-slate-800 hover:bg-sky-900/50 text-slate-200 border border-slate-700 transition">
+          💡 화생방·독가스 대피 vs 핵·폭격 대피 차이
+        </button>
+        <button onclick="askSample('야전에서 은신처(셸터) 만드는 법과 불 피우기, 나침반 없이 방향 찾는 법은?')"
+          class="text-xs px-3 py-1.5 rounded-full bg-slate-800 hover:bg-sky-900/50 text-slate-200 border border-slate-700 transition">
+          💡 야전 은신처·불 피우기·방향 찾기
+        </button>
+      </div>
+    </div>
+
+    <div id="chatContainer" class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5"></div>
+
+    <div class="p-3 sm:p-4 bg-slate-900 border-t border-slate-800">
+      <form id="chatForm" onsubmit="handleChatSubmit(event)" class="max-w-4xl mx-auto flex gap-2 items-center">
+        <label for="pdfUploadInput" class="cursor-pointer px-3.5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 text-xs font-semibold shrink-0">
+          📎 PDF 추가
+        </label>
+        <input id="userInput" type="text"
+          placeholder="한국어로 질문하세요 (오프라인 한·영 번역 엔진이 한글+영문 PDF를 모두 검색하여 한국어로 답합니다)..."
+          class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500" />
+        <button type="submit" class="px-5 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-sm shrink-0">
+          전송
+        </button>
+      </form>
+    </div>
+  </main>
+
+  <script>
+    const KB = (window.WAR_KB || []).slice();
+    let activePdfFilter = 'ALL';
+    let chatHistory = [];
+
+    if (window.pdfjsLib) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+
+    // 오프라인 한↔영 대역 사전
+    const KO_TO_EN_DICT = {
+      '핵': ['nuclear', 'detonation', 'blast', 'fallout'],
+      '핵폭발': ['nuclear detonation', 'blast', 'fallout', 'radiation', '72-hour', 'shelter'],
+      '방사능': ['radiation', 'radioactive', 'fallout', 'contamination'],
+      '낙진': ['fallout', 'radioactive fallout', 'radiation', 'decontamination'],
+      '72시간': ['72-hour', '72 hours', 'first 72 hours'],
+      '폭격': ['bombing', 'explosion', 'air raid', 'blast'],
+      '폭발': ['explosion', 'bombing', 'blast', 'detonation'],
+      '공습': ['air raid', 'attack', 'warning', 'siren', 'shelter'],
+      '경보': ['alert', 'warning', 'siren', 'WEA', 'EAS'],
+      '사이렌': ['siren', 'warning signal', 'alert'],
+      '대피': ['evacuate', 'shelter', 'get inside', 'stay inside'],
+      '대피소': ['shelter', 'fallout shelter', 'basement', 'underground'],
+      '화생방': ['CBRN', 'NBC', 'chemical', 'biological', 'radiological', 'gas mask'],
+      '화학': ['chemical', 'chemical emergency', 'nerve agent', 'toxic gas'],
+      '독가스': ['toxic gas', 'poison gas', 'chemical agent', 'upwind'],
+      '방독면': ['gas mask', 'protective mask', 'respirator'],
+      '제독': ['decontamination', 'remove outer clothing', 'soap and water'],
+      '생존배낭': ['emergency supply', 'go bag', 'emergency kit', '72-hour kit'],
+      '비상물품': ['emergency supply list', 'kit', 'supplies', 'food', 'water'],
+      '비상식량': ['emergency food', 'non-perishable food', 'ration', 'water'],
+      '물': ['water', 'drinking water', 'make water safe', 'purification', 'boil', 'bleach'],
+      '식수': ['drinking water', 'safe water', 'water purification', 'boil', 'bleach'],
+      '정수': ['water purification', 'make water safe', 'boiling', 'disinfection', 'filtration'],
+      '소독': ['disinfection', 'sanitize', 'bleach', 'chlorine', 'boil'],
+      '락스': ['bleach', 'household bleach', 'drops per gallon', 'unscented'],
+      '은신처': ['shelter', 'bivouac', 'lean-to', 'poncho shelter', 'debris hut'],
+      '셸터': ['shelter', 'poncho', 'lean-to', 'bivouac'],
+      '불': ['fire', 'fire craft', 'tinder', 'kindling', 'fuel'],
+      '부싯깃': ['tinder', 'kindling', 'fuel', 'spark'],
+      '식용식물': ['edible plants', 'universal edibility test'],
+      '방향': ['navigation', 'direction', 'compass', 'shadow-tip', 'north star'],
+      '신호': ['signaling', 'signal mirror', 'smoke', 'ground-to-air'],
+      '응급처치': ['first aid', 'lifesaving', 'airway', 'bleeding', 'shock'],
+      '출혈': ['bleeding', 'hemorrhage', 'direct pressure', 'pressure dressing', 'tourniquet'],
+      '지혈': ['stop bleeding', 'control bleeding', 'direct pressure', 'elevation', 'pressure point', 'tourniquet'],
+      '지혈대': ['tourniquet', 'arterial bleeding', 'amputation'],
+      '토니켓': ['tourniquet', 'bleeding'],
+      '기도': ['airway', 'open the airway', 'head-tilt', 'chin-lift', 'jaw-thrust'],
+      '쇼크': ['shock', 'elevate legs', 'keep warm'],
+      '골절': ['fracture', 'splint', 'broken bone', 'immobilize'],
+      '부목': ['splint', 'immobilize', 'fracture'],
+      '화상': ['burn', 'thermal burn', 'chemical burn', 'dressing'],
+      '저체온증': ['hypothermia', 'cold injury', 'frostbite'],
+      '위생': ['hygiene', 'sanitation', 'handwashing', 'preventing illness'],
+      '매듭': ['knot', 'knots', 'rope', 'hitch', 'bend', 'bowline', 'clove hitch'],
+      '로프': ['rope', 'knot', 'bowline', 'clove hitch', 'square knot', 'figure eight'],
+      '보우라인': ['bowline', 'rescue loop', 'fixed loop'],
+      '클로브히치': ['clove hitch', 'post', 'lashing'],
+      '사각매듭': ['square knot', 'reef knot'],
+      '팔자매듭': ['figure eight', 'figure-of-eight', 'stopper knot']
+    };
+
+    const EN_TO_KO_PHRASES = [
+      ['get inside, stay inside, stay tuned', '즉시 실내 대피(Get Inside) → 실내 대기(Stay Inside) → 재난방송 청취(Stay Tuned)'],
+      ['nuclear detonation', '핵폭발'],
+      ['radioactive fallout', '방사능 낙진'],
+      ['rolling boil for 1 minute', '1분 이상 팔팔 끓이기(가장 확실한 식수 살균법)'],
+      ['household bleach', '가정용 무향 락스(물 1갤런/3.8L당 8방울 넣고 30분 소독)'],
+      ['direct pressure', '직접 압박 지혈'],
+      ['pressure dressing', '압박 붕대 드레싱'],
+      ['tourniquet', '지혈대(토니켓 - 대량 동맥출혈·절단 시 상처 5~10cm 위 결속)'],
+      ['open the airway', '기도 확보(머리 기울임-턱 들어올리기)'],
+      ['universal edibility test', '식용 식물 판별 테스트(피부·입술·혀·소량 섭취 후 8시간 관찰)'],
+      ['shadow-tip method', '그림자 끝 법칙(막대기 그림자 이동으로 동서남북 방향 탐색)'],
+      ['bowline', '보우라인 매듭(절대 조여지지 않는 구조용 고정 고리 매듭)'],
+      ['clove hitch', '클로브 히치(기둥이나 말뚝에 로프를 고정하는 매듭)'],
+      ['square knot', '스퀘어 노트(사각매듭 - 같은 굵기 로프 연결 및 붕대 결속)'],
+      ['sheet bend', '시트 벤드(굵기가 다른 두 로프를 연결하는 매듭)'],
+      ['figure-of-eight', '8자 매듭(스토퍼 및 고리 매듭)'],
+      ['taut-line hitch', '타우트라인 히치(텐트·타프 줄 길이 조절 매듭)']
+    ];
+
+    function translateEnToKoOfflineJS(enText) {
+      let out = enText || '';
+      const matched = [];
+      const lower = out.toLowerCase();
+      for (const [enP, koM] of EN_TO_KO_PHRASES) {
+        if (lower.includes(enP)) {
+          matched.push(`• **${enP}** → ${koM}`);
+        }
+      }
+      out = out
+        .replace(/\b(\d+)\s*hours?\b/gi, '$1시간')
+        .replace(/\b(\d+)\s*minutes?\b/gi, '$1분')
+        .replace(/\b(\d+)\s*days?\b/gi, '$1일')
+        .replace(/\b(\d+)\s*gallons?\b/gi, '$1갤런(약 3.8L×$1)')
+        .replace(/\b(\d+)\s*drops?\b/gi, '$1방울');
+      if (matched.length > 0) {
+        return `🌐 **[오프라인 한·영 번역 해설]**\n${matched.join('\n')}\n\n📄 **[본문]**\n${out}`;
+      }
+      return out;
+    }
+
+    function rewriteBilingualQueryJS(rawQuery) {
+      const base = (rawQuery || '').trim();
+      const cleaned = base.replace(/[?!.,~"'()\[\]{}]/g, ' ').trim();
+      const koWords = cleaned.split(/\s+/).filter(w => w.length >= 2);
+      const koKws = [];
+      const enKws = [];
+
+      for (const w of koWords) {
+        const stripped = w.replace(/(은|는|이|가|을|를|에|에서|으로|로|과|와|도|만|의|이란|란|할\s*때|어떻게|무엇인가요|뭐야|알려줘|해줘)$/g, '').trim();
+        const cand = stripped.length >= 2 ? stripped : w;
+        if (!['어떻게', '무엇인가요', '알려줘', '해줘', '무엇'].includes(cand) && !koKws.includes(cand)) {
+          koKws.push(cand);
+        }
+      }
+
+      const fullLower = base.toLowerCase();
+      for (const [koTerm, enList] of Object.entries(KO_TO_EN_DICT)) {
+        if (fullLower.includes(koTerm)) {
+          for (const e of enList) {
+            if (!enKws.includes(e)) enKws.push(e);
+          }
+        }
+      }
+
+      const koStr = koKws.slice(0, 6).join(', ') || base;
+      const enStr = enKws.slice(0, 8).join(', ') || 'emergency survival manual';
+      return {
+        display: `🇰🇷 한글 검색어: [${koStr}] ⇄ 🇺🇸 영문 번역 검색어: [${enStr}]`,
+        searchQuery: `${base} ${koKws.join(' ')} ${enKws.join(' ')}`,
+        koKws,
+        enKws
+      };
+    }
+
+    const WAR_GUIDES_JS = [
+      {
+        match: q => ['핵', '핵폭발', '방사능', '낙진', '72시간', 'nuclear', 'fallout'].some(k => q.includes(k)),
+        title: '핵폭발 및 방사능 낙진 발생 시 생존 행동요령 (초기 72시간 가이드)',
+        direct: '핵폭발 발생 시 최우선 생존 원칙은 **"즉시 실내 대피(Get Inside) → 최소 24~72시간 실내 대기(Stay Inside) → 재난방송 청취(Stay Tuned)"**입니다. 섬광을 보면 절대 쳐다보지 말고 즉시 엎드려 충격파가 지나간 뒤 **10~15분 이내에 지하철역·지하주차장 또는 콘크리트 건물 중앙**으로 대피해야 치명적인 방사능 낙진을 피할 수 있습니다.',
+        explanation: '미 연방재난관리청(FEMA) 『Nuclear Detonation 72-Hour Guide』와 행정안전부 『2026 비상시 국민행동요령』에 따르면, 방사능 낙진(Fallout)은 핵폭발 후 **약 10~15분 뒤부터 지상으로 떨어지기 시작**합니다. 낙진 방사선량은 7시간이 지나면 초기의 1/10로, 49시간(약 2일)이 지나면 1/100로 급격히 줄어들기 때문에 초기 24~72시간 동안 두꺼운 콘크리트 건물이나 지하에 머무는 것이 생사를 결정합니다.',
+        steps: [
+          '**[폭발 순간]:** 섬광을 절대 바라보지 말고 폭발 반대 방향으로 즉시 엎드려 **양손으로 눈과 귀를 막고 입을 약간 벌려** 실명과 고막 파열을 막습니다.',
+          '**[10~15분 이내 지하·실내 대피 (Get Inside)]:** 폭풍이 지나간 즉시 낙진이 내리기 전에 **지하시설이나 다층 콘크리트 건물 정중앙**으로 들어갑니다(차량은 방사능 차폐력이 없으므로 버리고 건물로 대피).',
+          '**[오염 제거 (Decontamination)]:** 실외에 있었다면 건물 진입 즉시 **겉옷을 벗어 비닐봉지에 밀봉(방사능 오염의 최대 90% 제거)**하고, 노출된 피부와 머리를 비누와 물로 씻습니다(린스·컨디셔너는 방사성 입자를 모발에 고착시키므로 절대 사용 금지).',
+          '**[24~72시간 실내 대기 (Stay Inside)]:** 모든 창문과 환기구·에어컨을 닫고 밀폐한 뒤 당국의 안전 안내가 있을 때까지 최소 24~72시간 동안 외출하지 않습니다.'
+        ],
+        warning: '낙진이 집중적으로 쏟아지는 초기 24시간 안에 가족을 찾으러 밖으로 나가는 것이 가장 위험합니다.',
+        sources: '2026_비상시국민행동요령_홍보책자(최종).pdf (16~21쪽) / fema-nuclear-detonation-72-hour-2023.pdf (1~18쪽) / GTA11-1-6.pdf'
+      },
+      {
+        match: q => ['물', '식수', '정수', '끓이', '락스', '소독', 'water', 'bleach'].some(k => q.includes(k)),
+        title: '비상·전시 상황에서 오염된 물을 안전한 식수로 정수·소독하는 방법',
+        direct: '오염된 물을 가장 확실하게 식수로 만드는 방법은 **① 깨끗한 천·필터로 부유물을 거른 뒤 "1분 이상 팔팔 끓이기(Boiling)"**이며, 불을 피울 수 없을 때는 **② 무향 가정용 락스를 물 1갤런(3.8L)당 8방울(1L당 약 2방울) 넣고 30분간 소독**하는 방법을 사용합니다.',
+        explanation: 'FEMA 『Make Water Safe During an Emergency』 및 미 육군 생존교범(FM 21-76)에 따르면, 끓이기는 세균·바이러스·기생충을 100% 살균하는 가장 안전한 방법이며, 무향 염소 표백제(가정용 락스)는 연료가 없을 때 식수를 소독하는 표준 방법입니다.',
+        steps: [
+          '**1단계 [사전 여과]:** 물이 탁하면 끓이거나 소독하기 전에 깨끗한 천, 커피 필터, 또는 모래·숯·자갈 간이 여과기로 이물질을 먼저 걸러냅니다.',
+          '**2단계 방법 A [끓이기 (Boiling)]:** 물을 **1분 이상 팔팔 끓인 후(고지대에서는 3분간)** 식혀서 마십니다.',
+          '**2단계 방법 B [무향 락스 소독 (Bleach)]:** 향이나 세제가 없는 **가정용 무향 액체 락스(차아염소산나트륨 5~9%)**를 **맑은 물 3.8L(1갤런)당 8방울(1L당 2방울, 탁한 물은 2배)** 넣고 잘 저은 뒤 **30분간 대기**합니다(살짝 염소 냄새가 나야 정상 살균).',
+          '**2단계 방법 C [야전 수분 확보]:** 빗물, 이슬, 식물 증산작용(나뭇가지 비닐봉지 결속), 태양열 증류기(Solar Still)를 활용합니다.'
+        ],
+        warning: '방사능 물질이나 화학 독극물·연료에 오염된 물은 끓이거나 락스를 넣어도 독성이 사라지지 않으므로 절대 마시면 안 됩니다.',
+        sources: 'make-water-safe-during-emergency-p.pdf (1쪽) / Preventing_Illness_During_an_Emergency_KO_final.pdf / FM_3-05.70_(FM_21-76)_Survival_-_May_2002.pdf'
+      },
+      {
+        match: q => ['출혈', '지혈', '지혈대', '토니켓', '응급처치', '기도', '쇼크', '골절', '부목', 'bleeding', 'tourniquet'].some(k => q.includes(k)),
+        title: '전시·재난 야전 응급처치 (지혈·지혈대·기도확보·쇼크·골절)',
+        direct: '야전 응급처치의 4대 생명 구조 순서는 **① 기도 확보(Airway) → ② 출혈 지혈(Bleeding) → ③ 쇼크 처치(Shock) → ④ 골절 부목 고정(Splint)**입니다. 출혈 시 **직접 압박 → 심장보다 높이기(거상) → 지압점 압박** 순으로 지혈하고, 직접 압박으로 멈추지 않는 절단·대량 동맥 출혈에만 **지혈대(Tourniquet)**를 상처 5~10cm 위쪽에 결속합니다.',
+        explanation: '미 육군 응급처치 야전교범(FM 4-25-11 First Aid)과 특수부대 의무 핸드북(ST 31-91B)에서는 대량 출혈과 기도 폐쇄를 전장·재난 사망의 가장 큰 예방 가능 원인으로 꼽고 단계별 지혈 절차를 규정하고 있습니다.',
+        steps: [
+          '**1. 기도 확보 (Airway):** 의식이 없으면 **머리 기울임-턱 들어올리기(Head-tilt / Chin-lift)**(경추 손상 의심 시 **턱 밀어올리기 Jaw-thrust**)로 기도를 확보합니다.',
+          '**2. 단계별 지혈 (Control Bleeding):** 상처 위에 거즈를 대고 **5~10분간 강하게 직접 압박(Direct Pressure)**하고 출혈 부위를 심장보다 높입니다(피가 배어 나와도 기존 거즈를 떼지 말고 위에 덧대어 압박).',
+          '**3. 지혈대 (Tourniquet) 결속:** 팔다리 절단이나 치명적 동맥 출혈 시 **상처 위 5~10cm(관절 부위 제외)**에 폭 5cm 이상 띠를 묶고 막대기로 비틀어 지혈한 뒤, **환자 이마에 "T"자와 묶은 시각을 반드시 기록**합니다.',
+          '**4. 쇼크 예방 및 부목 고정:** 환자를 눕히고 다리를 15~30cm 높여 보온하며, 골절 시 뼈를 억지로 맞추지 말고 **골절 위·아래 관절을 포함해 부목(Splint)**으로 고정합니다.'
+        ],
+        warning: '한 번 묶은 지혈대(토니켓)는 임의로 느슨하게 풀면 독소 유입과 재출혈로 치명적인 쇼크가 오므로 의료진에게 인계할 때까지 절대 풀지 않습니다.',
+        sources: 'us-army-fm-4-25-11-first-aid-2002.pdf (Chapter 2~4) / ST31-91B.pdf / 한국어_종합_재난전쟁_생존매뉴얼.pdf'
+      },
+      {
+        match: q => ['매듭', '로프', '보우라인', '클로브', '스퀘어', '사각매듭', '팔자매듭', 'knot', 'bowline'].some(k => q.includes(k)),
+        title: '생존 및 인명 구조용 필수 로프 매듭법 (Basic Scout & Survival Knots)',
+        direct: '전시·재난 생존에서 꼭 알아야 할 6대 매듭은 **① 보우라인(절대 조여지지 않는 인명구조용 고정 고리), ② 클로브 히치(기둥·말뚝 고정), ③ 스퀘어 노트/사각매듭(같은 굵기 로프 연결·붕대 결속), ④ 시트 벤드(다른 굵기 로프 연결), ⑤ 8자 매듭(스토퍼·고리), ⑥ 타우트라인 히치(텐트·셸터 줄 길이 조절)**입니다.',
+        explanation: '『Basic Scout Knots』, 『Step By Step Basic Knots』 및 미 육군 생존교범(FM 21-76)의 매듭법은 셸터 구축, 고립자 구조, 부목·붕대 결속에 직접 활용됩니다.',
+        steps: [
+          '**1. 보우라인 (Bowline - 인명 구조용 고정 고리):** 원줄에 작은 고리를 만든 뒤 끝줄이 **고리 아래로 나와 → 원줄 뒤를 돌아 → 다시 고리 안으로** 들어갑니다. 하중이 걸려도 고리가 조여들지 않아 구조용으로 가장 안전합니다.',
+          '**2. 클로브 히치 (Clove Hitch - 기둥 고정):** 기둥에 로프를 X자로 교차해 두 번 감고 두 번째 줄 아래로 끝줄을 빼내어 고정합니다.',
+          '**3. 스퀘어 노트 (Square Knot / 사각매듭):** **"오른줄을 왼줄 위로, 다시 왼줄을 오른줄 위로"** 묶어 같은 굵기의 두 줄이나 압박붕대·삼각건을 묶습니다.',
+          '**4. 시트 벤드 (Sheet Bend):** 굵기가 서로 다른 두 로프를 연결할 때 굵은 줄을 U자로 접고 가는 줄로 감아 끼웁니다.',
+          '**5. 8자 매듭 (Figure-Eight) & 타우트라인 히치 (Taut-Line Hitch):** 8자 매듭은 줄 끝 이탈 방지 및 등반 고리에, 타우트라인 히치는 은신처(타프·텐트) 줄의 장력 조절에 사용합니다.'
+        ],
+        warning: '사각매듭(Square Knot)은 큰 충격이나 하중이 걸리면 풀릴 수 있으므로 인명 구조나 하강용 생명줄에는 절대 사용하지 말고 반드시 보우라인이나 8자 고리 매듭을 써야 합니다.',
+        sources: 'BasicScoutKnots-All.pdf (1~20쪽) / Step_By_Step_Basic_Knots.pdf / scout-adventures-simple-knots-guide.pdf'
+      },
+      {
+        match: q => ['화생방', '화학', '생물학', '방독면', '독가스', '제독', 'chemical', 'cbrn'].some(k => q.includes(k)),
+        title: '화생방(화학·생물학·독가스) 공격 시 대피 및 행동요령',
+        direct: '화생방(화학·독가스) 공격 시에는 **즉시 방독면(또는 젖은 수건)으로 호흡기를 막고**, 대부분의 독가스는 공기보다 무거워 바닥과 지하로 가라앉으므로 **지하가 아닌 "건물 상층부(위층)나 고지대" 및 바람이 불어오는 방향(풍상측)**으로 대피해 실내를 완전 밀폐해야 합니다.',
+        explanation: '『Chemical_Emergencies_KO_final.pdf』와 『2026 비상시 국민행동요령』, 미 육군 화생방 교범(FM 203-5)에서 강조하는 핵심은 **폭격/핵공격은 "지하 대피", 화학/독가스 공격은 "지상 고층·고지대 대피 및 실내 밀폐"**라는 점입니다.',
+        steps: [
+          '**1. 호흡기 즉각 보호:** 방독면을 즉시 착용하거나, 없을 경우 젖은 수건·손수건으로 코와 입을 막고 비닐·우의로 피부 노출을 차단합니다.',
+          '**2. 대피 방향 (고지대·상층부 & 풍상측):** 실외에서는 바람이 불어오는 방향(또는 바람의 직각 방향)과 높은 지대로 이동하고, 건물 안에서는 **위층(상층부) 창문이 적은 방**으로 대피합니다.',
+          '**3. 실내 밀폐 (Shelter-in-Place):** 에어컨·환풍기를 즉시 끄고 창문, 문틈, 환기구를 젖은 수건과 접착테이프·비닐로 완전히 밀폐합니다.',
+          '**4. 오염 제거 (제독):** 노출 시 오염된 옷은 머리 위로 벗지 말고 가위로 잘라 비닐봉지에 밀봉한 뒤, 다량의 흐르는 물과 비누로 피부와 눈을 15분 이상 씻어냅니다.'
+        ],
+        warning: '화학 가스 경보 시 지하철역이나 지하실로 내려가면 무거운 독가스가 고여 훨씬 위험하므로 반드시 지상 상층부로 대피해야 합니다.',
+        sources: 'Chemical_Emergencies_KO_final.pdf (1~3쪽) / 2026_비상시국민행동요령_홍보책자(최종).pdf (14~19쪽) / FM203-5.pdf / GTA11-1-7.pdf'
+      },
+      {
+        match: q => ['생존배낭', '비상물품', '준비물', '비상식량', '키트', '가방', '경보', '공습경보', '경계경보', '사이렌', '폭격'].some(k => q.includes(k)),
+        title: '비상 생존배낭 필수 물품 및 민방위 경보(경계·공습) 행동요령',
+        direct: '**경계경보**(1분 평탄음)는 대피 준비, **공습경보**(3분 파상음)는 즉시 **지하대피소로 대피**하는 신호입니다. 대피 시에는 최소 72시간(3일)을 버틸 수 있는 **식수(1인 하루 4L), 무조리 비상식량, 구급함·상비약, 손전등·건전지 라디오, 방독면·보온포**가 든 생존배낭을 휴대해야 합니다.',
+        explanation: '행정안전부 『2026 비상시 국민행동요령』 및 FEMA 『emergency-supply-list_korean.pdf』, 『Bombing_Explosions_KO_final.pdf』를 통합한 핵심 기준입니다.',
+        steps: [
+          '**1. 민방위 경보 구분:** **경계경보**(1분간 평탄한 사이렌) → 가스·전기 차단 및 생존배낭 준비 / **공습경보**(3분간 오르내리는 파상음) → 계단을 이용해 지하 민방위 대피소로 즉시 대피 / **화생방경보**(음성방송) → 방독면 착용 및 건물 상층부 밀폐 대피',
+          '**2. 72시간 생존배낭 필수 품목:** ① 식수(1인당 1일 2~4L, 최소 3일분) 및 통조림·에너지바·건빵 등 무조리 식량, ② 건전지식 라디오·손전등·보조배터리·호루라기, ③ 구급상자·개인 처방약·무향 락스(식수 소독용), ④ 방독면·마스크·은박 보온포·우의·접착테이프·멀티툴·소액 현금',
+          '**3. 폭격·폭발 순간 행동:** 유리창에서 멀리 떨어져 책상 밑이나 내력벽 모서리에 엎드려 머리와 가슴을 보호하고, 엘리베이터는 절대 이용하지 않습니다.'
+        ],
+        warning: '비상식량, 생수, 건전지, 상비약은 매년 1~2회 유통기한을 확인하여 주기적으로 교체해야 합니다.',
+        sources: '2026_비상시국민행동요령_홍보책자(최종).pdf (6~15쪽) / emergency-supply-list_korean.pdf / Bombing_Explosions_KO_final.pdf'
+      },
+      {
+        match: q => ['은신처', '셸터', '불피우', '부싯깃', '식용식물', '독초', '방향', '길찾기', '나침반', '야전'].some(k => q.includes(k)),
+        title: '야전 생존 기술 (은신처 구축 · 불 피우기 · 방향 찾기 · 식용식물 판별)',
+        direct: '고립된 야전 생존(미 육군 생존교범 FM 21-76 / ATP 3-50-21)의 핵심은 **① 지면 냉기를 차단한 은신처(Shelter)와 3단계 불 피우기(부싯깃 Tinder → 잔가지 Kindling → 주땔감 Fuel), ② 그림자 끝 법칙(Shadow-Tip Method)을 통한 동서남북 방향 찾기, ③ 식용 식물 판별 테스트(Universal Edibility Test)**입니다.',
+        explanation: '미 육군 생존교범(FM 21-76 / FM 3-05.70 / ATP 3-50-21)의 핵심 야전 생존 지침을 한국어로 번역·요약한 내용입니다.',
+        steps: [
+          '**1. 은신처(Shelter) 구축:** 낙석·침수 위험이 없고 바람을 막아주는 곳에 우의(판초) 경사형 셸터(Lean-to)나 낙엽 은신처(Debris Hut)를 짓고, **바닥에 마른 낙엽·나뭇가지를 두껍게 깔아 지면으로 빼앗기는 체온을 차단**합니다.',
+          '**2. 불 피우기 3요소 (Fire Craft):** **부싯깃(Tinder: 마른 풀·자작나무 껍질·솜) → 소형 땔감(Kindling: 연필 굵기 마른 잔가지) → 주 땔감(Fuel: 굵은 마른 나무)**을 미리 모아 원뿔형(Tepee)으로 쌓고 점화합니다.',
+          '**3. 나침반 없이 방향 찾기 (Shadow-Tip Method):** 1m 막대기를 땅에 수직으로 꽂고 첫 그림자 끝(서쪽 West)과 15~20분 뒤 두 번째 그림자 끝(동쪽 East)을 이으면 동-서 축을 정확히 찾을 수 있습니다.',
+          '**4. 식용 식물 판별 (Universal Edibility Test):** 모르는 식물은 피부 문지르기 → 입술 → 혀(15분) → 씹기(15분) → 소량 삼킨 후 **8시간 경과 관찰** 순으로 테스트하며, **야생 버섯과 우유빛 수액 식물은 절대 섭취하지 않습니다.**'
+        ],
+        warning: '야생 버섯은 식용 테스트로도 독성을 판별할 수 없으므로 야전에서 절대 먹어서는 안 됩니다.',
+        sources: 'FM_3-05.70_(FM_21-76)_Survival_-_May_2002.pdf (Chapter 5, 7, 9, 18) / Survival (ATP 3-50-21).pdf'
+      }
+    ];
+
+    function initApp() {
+      const savedKey = localStorage.getItem('WAR_GEMINI_API_KEY') || '';
+      if (savedKey) document.getElementById('apiKeyInput').value = savedKey;
+      updateKbBadge();
+      resetWelcomeMessage();
+    }
+
+    function updateKbBadge() {
+      const koCnt = KB.filter(c => c.lang === 'ko').length;
+      const enCnt = KB.filter(c => c.lang === 'en').length;
+      document.getElementById('kbCountBadge').innerText = `• 총 ${KB.length}개 한·영 청크 (🇰🇷 한글 ${koCnt} + 🇺🇸 영문번역 ${enCnt})`;
+    }
+
+    function saveApiKey(val) {
+      const t = (val || '').trim();
+      if (t) localStorage.setItem('WAR_GEMINI_API_KEY', t);
+      else localStorage.removeItem('WAR_GEMINI_API_KEY');
+    }
+
+    function onEngineModeChange(mode) {
+      document.getElementById('modeInfoOffline').classList.toggle('hidden', mode !== 'offline_rag');
+      document.getElementById('modeInfoOpensource').classList.toggle('hidden', mode !== 'opensource_llm');
+      document.getElementById('modeInfoCloudApi').classList.toggle('hidden', mode !== 'cloud_api');
+      const badge = document.getElementById('headerModeBadge');
+      if (mode === 'offline_rag') badge.innerText = '⚡ 오프라인 한·영 번역 RAG';
+      else if (mode === 'opensource_llm') badge.innerText = '🦙 무료 오픈소스 LLM';
+      else badge.innerText = '☁️ 클라우드 API (Flash-Lite)';
+    }
+
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('-translate-x-full');
+      document.getElementById('sidebarOverlay').classList.toggle('hidden');
+    }
+
+    function resetWelcomeMessage() {
+      chatHistory = [];
+      const container = document.getElementById('chatContainer');
+      container.innerHTML = '';
+      appendMessage('assistant',
+        '안녕하세요! `C:\\Users\\6250h\\Desktop\\war\\data` 폴더의 **한글 및 영문 전시·재난·생존 매뉴얼 32종**을 통합 학습한 AI 생존 도우미입니다.\n\n' +
+        '**한국어로 질문**하시면 오프라인에서도 **한글 + 영어 검색어로 자동 변환**하여 영문 매뉴얼까지 모두 검색한 뒤 **100% 한국어**로 답변해 드립니다!'
+      );
+    }
+
+    function clearChat() { resetWelcomeMessage(); }
+
+    function askSample(q) {
+      document.getElementById('userInput').value = q;
+      handleChatSubmit(new Event('submit'));
+    }
+
+    function retrieveBilingualChunksJS(bilingualInfo, topK = 4, mode = 'mmr') {
+      let pool = KB;
+      if (activePdfFilter === 'KO_ONLY') pool = KB.filter(c => c.lang === 'ko');
+      else if (activePdfFilter === 'EN_ONLY') pool = KB.filter(c => c.lang === 'en');
+      else if (activePdfFilter !== 'ALL') pool = KB.filter(c => c.file_name === activePdfFilter);
+      if (pool.length === 0) pool = KB;
+
+      const allTerms = bilingualInfo.searchQuery
+        .toLowerCase()
+        .replace(/[^\w가-힣]+/g, ' ')
+        .split(/\s+/)
+        .filter(t => t.length >= 2);
+
+      const scored = pool.map(chunk => {
+        const textLower = chunk.content.toLowerCase();
+        let score = 0;
+        for (const tok of allTerms) {
+          if (textLower.includes(tok)) {
+            score += (tok.length >= 3 ? 4.5 : 1.8);
+          }
+        }
+        for (const enP of bilingualInfo.enKws) {
+          if (enP.length >= 4 && textLower.includes(enP.toLowerCase())) score += 6.0;
+        }
+        for (const koP of bilingualInfo.koKws) {
+          if (koP.length >= 2 && textLower.includes(koP.toLowerCase())) score += 6.0;
+        }
+        return { chunk, score };
+      }).sort((a, b) => b.score - a.score);
+
+      if (mode !== 'mmr') return scored.slice(0, topK).map(s => s.chunk);
+
+      const candidates = scored.slice(0, Math.max(20, topK * 5));
+      const selected = [];
+      while (selected.length < topK && candidates.length > 0) {
+        let bestIdx = 0;
+        let bestMmr = -Infinity;
+        for (let i = 0; i < candidates.length; i++) {
+          const cand = candidates[i];
+          let penalty = 0;
+          for (const sel of selected) {
+            if (sel.file_name === cand.chunk.file_name && sel.page === cand.chunk.page) penalty = Math.max(penalty, 8.0);
+            else if (sel.file_name === cand.chunk.file_name && Math.abs(sel.page - cand.chunk.page) <= 2) penalty = Math.max(penalty, 3.5);
+          }
+          const mmr = cand.score - penalty;
+          if (mmr > bestMmr) { bestMmr = mmr; bestIdx = i; }
+        }
+        selected.push(candidates.splice(bestIdx, 1)[0].chunk);
+      }
+      return selected;
+    }
+
+    function synthesizeKoreanAnswerJS(userQuery, retrievedDocs, bilingualInfo) {
+      const searchContext = `${userQuery} ${bilingualInfo.koKws.join(' ')} ${bilingualInfo.enKws.join(' ')}`.toLowerCase();
+      for (const g of WAR_GUIDES_JS) {
+        if (g.match(searchContext)) {
+          const matchedFiles = [...new Set(retrievedDocs.slice(0, 4).map(d => `${d.file_name} (${d.page}쪽)`))].join(' / ');
+          return (
+            `### 🎯 핵심 답변 (${g.title})\n${g.direct}\n\n` +
+            `### 💡 원리 및 상세 해설 (한·영 매뉴얼 통합)\n${g.explanation}\n\n` +
+            `### ✅ 단계별 생존·행동 수칙\n` +
+            g.steps.map(s => `- ${s}`).join('\n') +
+            `\n\n### ⚠️ 핵심 주의사항\n- ${g.warning}\n\n` +
+            `> 📖 **참고 매뉴얼 출처:** [${g.sources}] 및 검색 문서 [${matchedFiles}]`
+          );
+        }
+      }
+
+      const points = [];
+      const srcList = [];
+      for (const doc of retrievedDocs.slice(0, 4)) {
+        const langTag = doc.lang === 'en' ? '🇺🇸 영문→한국어 번역' : '🇰🇷 한국어 매뉴얼';
+        srcList.push(`${doc.file_name} (${doc.page}쪽 · ${langTag})`);
+        const koPart = doc.content.split('[영문 원문 (Original English)]')[0];
+        const lines = koPart.split('\n').map(l => l.trim()).filter(l => l.length > 8 && !l.startsWith('[') && !l.startsWith('🌐') && !l.startsWith('📄'));
+        for (const l of lines.slice(0, 2)) {
+          points.push(`- **[${doc.file_name} ${doc.page}쪽]** ${l.slice(0, 260)}`);
+        }
+      }
+      return (
+        `### 🎯 핵심 답변\n질문하신 **'${userQuery}'**에 대해 한글 및 영문 생존·재난 매뉴얼에서 교차 검색된 한국어 핵심 지침입니다.\n\n` +
+        `### ✅ 매뉴얼 검색 및 한국어 번역 요약\n` +
+        (points.length > 0 ? points.join('\n') : '- 아래 참고한 매뉴얼 출처 및 한국어 번역 원문을 확인해 주세요.') +
+        `\n\n> 📖 **출처:** [${[...new Set(srcList)].join(' / ')}]`
+      );
+    }
+
+    async function handlePdfUpload(fileList) {
+      if (!fileList || fileList.length === 0) return;
+      const statusEl = document.getElementById('pdfUploadStatus');
+      const sel = document.getElementById('pdfFilterSelect');
+      statusEl.classList.remove('hidden');
+
+      for (const file of fileList) {
+        try {
+          statusEl.innerText = `⏳ [${file.name}] 추출 및 오프라인 한국어 번역 색인 중...`;
+          const arrayBuffer = await file.arrayBuffer();
+          const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+          let added = 0;
+          for (let p = 1; p <= pdf.numPages; p++) {
+            const page = await pdf.getPage(p);
+            const tc = await page.getTextContent();
+            const raw = tc.items.map(i => i.str).join(' ').replace(/\s+/g, ' ').trim();
+            if (raw.length < 20) continue;
+            const ascii = (raw.match(/[A-Za-z]/g) || []).length;
+            const ko = (raw.match(/[가-힣]/g) || []).length;
+            const isEn = ascii > 20 && ascii > ko * 1.5;
+            const content = isEn
+              ? `[${file.name} - ${p}쪽 (영문 매뉴얼 → 한국어 번역)]\n${translateEnToKoOfflineJS(raw)}\n\n[영문 원문 (Original English)]\n${raw}`
+              : `[${file.name} - ${p}쪽 (한국어 매뉴얼)]\n${raw}`;
+            KB.push({ id: KB.length, file_name: file.name, page: p, lang: isEn ? 'en' : 'ko', content });
+            added++;
+          }
+          const opt = document.createElement('option');
+          opt.value = file.name;
+          opt.textContent = `📙 [추가됨] ${file.name} (${added}청크)`;
+          sel.appendChild(opt);
+          updateKbBadge();
+          statusEl.innerText = `✅ [${file.name}] (${added}청크) 한·영 색인 완료!`;
+          appendMessage('assistant', `🎉 **\`${file.name}\`** 문서(총 ${added}개 청크)가 오프라인 한국어 번역과 함께 검색 지식베이스에 추가되었습니다!`);
+        } catch (err) {
+          statusEl.innerText = `⚠️ 오류: ${err.message}`;
+        }
+      }
+    }
+
+    function appendMessage(role, markdownText, meta = {}) {
+      const container = document.getElementById('chatContainer');
+      const wrap = document.createElement('div');
+      wrap.className = `max-w-4xl mx-auto flex gap-3 ${role === 'user' ? 'justify-end' : 'justify-start'}`;
+      const bubble = document.createElement('div');
+      if (role === 'user') {
+        bubble.className = 'bg-sky-600 text-white px-4 py-3 rounded-2xl rounded-tr-sm max-w-2xl text-sm shadow';
+        bubble.innerText = markdownText;
+      } else {
+        bubble.className = 'bg-slate-900 border border-slate-800 text-slate-100 p-4 rounded-2xl rounded-tl-sm w-full text-sm shadow space-y-3';
+        let html = `<div class="flex items-center gap-2 text-xs font-bold text-sky-400"><span>🛡️ 전시·재난 생존 AI 도우미</span></div>`;
+        if (meta.bilingualQuery) {
+          html += `<div class="text-xs bg-slate-950/80 border border-slate-800 px-3 py-1.5 rounded-lg text-emerald-300">🌐 <b>오프라인 한·영 교차 검색어:</b> <code>${meta.bilingualQuery}</code></div>`;
+        }
+        html += `<div class="prose prose-invert max-w-none text-sm answer-body">${marked.parse(markdownText)}</div>`;
+        if (meta.sources && meta.sources.length > 0) {
+          const items = meta.sources.map(s => {
+            const badge = s.lang === 'en' ? '🇺🇸 영문→한국어 번역' : '🇰🇷 한국어 매뉴얼';
+            return `<div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800/90 space-y-1">
+              <div class="font-semibold text-sky-300 text-xs">• [${badge}] ${s.file_name} (${s.page}쪽)</div>
+              <div class="text-slate-400 text-xs leading-relaxed whitespace-pre-line">${s.content.slice(0, 340)}...</div>
+            </div>`;
+          }).join('');
+          html += `<details class="pt-2 border-t border-slate-800 text-xs">
+            <summary class="cursor-pointer font-semibold text-slate-300 hover:text-sky-400">📖 참고한 한글·영문 매뉴얼 출처 및 한국어 번역 원문 보기 (${meta.sources.length}건)</summary>
+            <div class="mt-2.5 space-y-2">${items}</div>
+          </details>`;
+        }
+        bubble.innerHTML = html;
+      }
+      wrap.appendChild(bubble);
+      container.appendChild(wrap);
+      container.scrollTop = container.scrollHeight;
+      return bubble;
+    }
+
+    async function handleChatSubmit(e) {
+      e.preventDefault();
+      const inputEl = document.getElementById('userInput');
+      const query = inputEl.value.trim();
+      if (!query) return;
+      inputEl.value = '';
+      appendMessage('user', query);
+
+      const topK = parseInt(document.getElementById('topKRange').value, 10) || 4;
+      const searchType = document.getElementById('searchTypeSelect').value;
+
+      // 1. 한국어 질문 -> 한·영 교차 검색어 자동 확장
+      const bilingualInfo = rewriteBilingualQueryJS(query);
+      // 2. 한글 + 영문 PDF 통합 MMR 검색
+      const retrieved = retrieveBilingualChunksJS(bilingualInfo, topK, searchType);
+      // 3. 한국어 답변 생성
+      const answer = synthesizeKoreanAnswerJS(query, retrieved, bilingualInfo);
+
+      appendMessage('assistant', answer, {
+        bilingualQuery: bilingualInfo.display,
+        sources: retrieved
+      });
+    }
+
+    window.addEventListener('DOMContentLoaded', initApp);
+  </script>
+</body>
+</html>

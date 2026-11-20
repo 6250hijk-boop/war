@@ -1,0 +1,9 @@
+# 환경 변수 및 API 키
+.env
+api_key.txt
+
+# 가상환경 및 캐시
+.venv/
+__pycache__/
+*.pyc
+cache/
