@@ -721,20 +721,47 @@
       const points = [];
       const srcList = [];
       for (const doc of retrievedDocs.slice(0, 4)) {
-        const langTag = doc.lang === 'en' ? '🇺🇸 영문→한국어 번역' : '🇰🇷 한국어 매뉴얼';
+        const langTag = doc.lang === 'en' ? '🇺🇸 영문→🇰🇷 한국어 완역' : '🇰🇷 한국어 매뉴얼';
         srcList.push(`${doc.file_name} (${doc.page}쪽 · ${langTag})`);
-        const koPart = doc.content.split('[영문 원문 (Original English)]')[0];
-        const lines = koPart.split('\n').map(l => l.trim()).filter(l => l.length > 8 && !l.startsWith('[') && !l.startsWith('🌐') && !l.startsWith('📄'));
+        const koPart = getChunkKoreanText(doc);
+        const lines = koPart.split(/\n|(?<=\.)\s+/).map(l => l.trim()).filter(l => l.length > 8 && !l.startsWith('[') && !l.startsWith('🌐') && !l.startsWith('📄'));
         for (const l of lines.slice(0, 2)) {
           points.push(`- **[${doc.file_name} ${doc.page}쪽]** ${l.slice(0, 260)}`);
         }
       }
+      const briefLine = points.length > 0
+        ? points[0].replace(/^- \*\*\[.*?\]\*\*\s*/, '')
+        : `질문하신 '${userQuery}'에 대한 한글·영문 매뉴얼 검색 결과입니다.`;
       return (
-        `### 🎯 핵심 답변\n질문하신 **'${userQuery}'**에 대해 한글 및 영문 생존·재난 매뉴얼에서 교차 검색된 한국어 핵심 지침입니다.\n\n` +
-        `### ✅ 매뉴얼 검색 및 한국어 번역 요약\n` +
+        `### 🎯 핵심 답변\n**${briefLine}**\n\n` +
+        `### ✅ 매뉴얼 검색 및 한국어 번역 상세 내용\n` +
         (points.length > 0 ? points.join('\n') : '- 아래 참고한 매뉴얼 출처 및 한국어 번역 원문을 확인해 주세요.') +
         `\n\n> 📖 **출처:** [${[...new Set(srcList)].join(' / ')}]`
       );
+    }
+
+    // 답변 텍스트를 [간단 핵심 답변]과 [자세히 보기 상세 내용]으로 자동 분리
+    function splitBriefAndDetail(markdownText) {
+      const text = (markdownText || '').trim();
+      // 두 번째 '### ' 헤더(💡, ✅, 📌, ⚠️ 등)가 나오는 지점을 기준으로 분리
+      const detailHeaderRegex = /\n+(?=###\s*(?:💡|✅|📌|⚠️|2\.|원리|상세|단계별|매뉴얼|관련))/;
+      const match = text.match(detailHeaderRegex);
+      if (match && match.index > 0) {
+        return {
+          brief: text.slice(0, match.index).trim(),
+          detail: text.slice(match.index).trim()
+        };
+      }
+      // 문단이 여러 개인 경우 첫 문단만 간단 답변으로, 나머지는 자세히 보기로 분리
+      const paragraphs = text.split(/\n\n+/);
+      if (paragraphs.length >= 3) {
+        const firstCount = paragraphs[0].startsWith('###') ? 2 : 1;
+        return {
+          brief: paragraphs.slice(0, firstCount).join('\n\n').trim(),
+          detail: paragraphs.slice(firstCount).join('\n\n').trim()
+        };
+      }
+      return { brief: text, detail: '' };
     }
 
     async function handlePdfUpload(fileList) {
@@ -1052,7 +1079,20 @@
         if (meta.bilingualQuery) {
           html += `<div class="text-xs bg-slate-950/80 border border-slate-800 px-3 py-1.5 rounded-lg text-emerald-300">🌐 <b>오프라인 한·영 교차 검색어:</b> <code>${meta.bilingualQuery}</code></div>`;
         }
-        html += `<div class="prose prose-invert max-w-none text-sm answer-body">${renderMarkdownSafe(markdownText)}</div>`;
+        const parts = splitBriefAndDetail(markdownText);
+        html += `<div class="prose prose-invert max-w-none text-sm answer-body">${renderMarkdownSafe(parts.brief)}</div>`;
+        if (parts.detail) {
+          html += `
+            <details class="mt-2 rounded-xl bg-slate-950/90 border border-sky-500/30 overflow-hidden">
+              <summary class="cursor-pointer px-3.5 py-2.5 text-xs font-bold text-sky-300 hover:bg-sky-950/60 select-none flex items-center justify-between">
+                <span>🔍 자세히 보기 (원리 · 단계별 행동수칙 · 주의사항 펼치기)</span>
+                <span class="text-[11px] text-slate-400">클릭하여 펼치기 ▾</span>
+              </summary>
+              <div class="p-3.5 border-t border-slate-800 prose prose-invert max-w-none text-sm">
+                ${renderMarkdownSafe(parts.detail)}
+              </div>
+            </details>`;
+        }
 
         if (meta.sources && meta.sources.length > 0) {
           // 1) 클릭하면 한국어 번역 + 해당 PDF 페이지가 동시에 열리는 원클릭 출처 버튼 바

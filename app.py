@@ -319,6 +319,19 @@ def generate_cached_llm_answer(
     raise RuntimeError(f"API 호출 실패: {last_err}")
 
 
+def split_brief_and_detail(markdown_text: str) -> tuple[str, str]:
+    """답변을 [간단한 핵심 답변]과 [자세히 보기용 상세 해설]로 분리합니다."""
+    text = (markdown_text or "").strip()
+    m = re.search(r"\n+(?=###\s*(?:💡|✅|📌|⚠️|2\.|원리|상세|단계별|매뉴얼|관련))", text)
+    if m and m.start() > 0:
+        return text[: m.start()].strip(), text[m.start() :].strip()
+    paras = re.split(r"\n\n+", text)
+    if len(paras) >= 3:
+        cut = 2 if paras[0].startswith("###") else 1
+        return "\n\n".join(paras[:cut]).strip(), "\n\n".join(paras[cut:]).strip()
+    return text, ""
+
+
 def format_chat_history(messages: list[dict], max_turns: int = 2) -> str:
     recent = messages[-(max_turns * 2) :]
     if not recent:
@@ -528,7 +541,14 @@ for i, sq in enumerate(sample_questions):
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+        if msg["role"] == "assistant":
+            brief_md, detail_md = split_brief_and_detail(msg["content"])
+            st.markdown(brief_md)
+            if detail_md:
+                with st.expander("🔍 자세히 보기 (원리 · 단계별 행동수칙 · 주의사항 펼치기)"):
+                    st.markdown(detail_md)
+        else:
+            st.markdown(msg["content"])
         if msg.get("bilingual_query"):
             st.caption(f"🌐 **한·영 교차 검색어:** `{msg['bilingual_query']}`")
         if msg.get("sources"):
@@ -592,7 +612,11 @@ if query:
                     except Exception:
                         answer = synthesize_offline_korean_answer(query, retrieved_docs, ko_kws, en_kws)
 
-        st.markdown(answer)
+        brief_md, detail_md = split_brief_and_detail(answer)
+        st.markdown(brief_md)
+        if detail_md:
+            with st.expander("🔍 자세히 보기 (원리 · 단계별 행동수칙 · 주의사항 펼치기)"):
+                st.markdown(detail_md)
 
         sources_info = []
         for doc in retrieved_docs:
